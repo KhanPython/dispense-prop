@@ -13,7 +13,8 @@ return function(params: {
 	PropInstance: Model,
 	CollisionGroup: string?,
 	AutoDestroyTime: number?,
-	AttractDistance: number?,
+	AttractMagnitude: number?,
+	AttractSpeed: number?,
 	OnDispense: (Model) -> ()?,
 	OnPropClaim: () -> ()?,
 	OnAllClaimed: () -> ()?,
@@ -45,8 +46,12 @@ return function(params: {
 			"AutoDestroyTime must be a number if provided"
 		)
 		assert(
-			not params.AttractDistance or typeof(params.AttractDistance) == "number",
-			"AttractDistance must be a number if provided"
+			not params.AttractMagnitude or (typeof(params.AttractMagnitude) == "number" and params.AttractSpeed > 0),
+			"AttractDistance must be a positive number if provided"
+		)
+		assert(
+			not params.AttractMagnitude or (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0),
+			"AttractSpeed must be a positive number if provided with AttractMagnitude"
 		)
 		assert(
 			not params.OnDispense or typeof(params.OnDispense) == "function",
@@ -91,21 +96,25 @@ return function(params: {
 			end
 
 			local targetPosition = params.TargetObject:GetPivot().Position
+			local speed = params.AttractSpeed
+
 			for prop, propJanitor in pairs(propJanitorMap) do
 				local propPosition = prop:GetPivot().Position
+				local direction = (targetPosition - propPosition).Unit
+				local distance = (targetPosition - propPosition).Magnitude
 
-				if (propPosition - targetPosition).Magnitude <= 3 then
+				if distance <= 3 then
 					propJanitor:Cleanup()
-				elseif (propPosition - targetPosition).Magnitude <= params.AttractDistance then
+				elseif distance <= params.AttractMagnitude then
 					PropertyUtil.SetProperty(prop, {
 						Anchored = true,
+						CanCollide = false,
 					}):await()
 
-					local currentCFrame = prop:GetPivot()
-					local targetCFrame = CFrame.new(targetPosition)
-					local lerpedCFrame = currentCFrame:Lerp(targetCFrame, math.clamp(0.2 * dT, 0, 1))
+					local moveDistance = math.min(speed * dT, distance)
+					local newPosition = propPosition + direction * moveDistance
 
-					prop:PivotTo(lerpedCFrame)
+					prop:PivotTo(CFrame.new(newPosition))
 				else
 					PropertyUtil.SetProperty(prop, {
 						Anchored = false,
@@ -117,22 +126,9 @@ return function(params: {
 		for _ = 1, params.Amount do
 			task.spawn(function()
 				local newProp = params.PropInstance:Clone()
-
-				do
-					table.insert(propList, newProp)
-					PropertyUtil.SetProperty(newProp, {
-						CanTouch = false,
-						CanQuery = false,
-						CanCollide = true,
-						Anchored = false,
-						Massless = false,
-						CollisionGroup = params.CollisionGroup,
-					}):await()
-					newProp:PivotTo(CFrame.new(params.Origin))
-				end
-
 				local propJanitor = Janitor.new()
-				newJan:AddObject(propJanitor, "Destroy")
+				newJan:Add(propJanitor, "Destroy")
+				propJanitor:Add(newProp, "Destroy")
 				propJanitorMap[newProp] = propJanitor
 
 				propJanitor:Add(function()
@@ -146,6 +142,19 @@ return function(params: {
 						params.OnPropClaim()
 					end
 				end)
+
+				do
+					table.insert(propList, newProp)
+					PropertyUtil.SetProperty(newProp, {
+						CanTouch = false,
+						CanQuery = false,
+						CanCollide = true,
+						Anchored = false,
+						Massless = false,
+						CollisionGroup = params.CollisionGroup,
+					}):await()
+					newProp:PivotTo(CFrame.new(params.Origin))
+				end
 
 				if params.OnDispense and typeof(params.OnDispense) == "function" then
 					params.OnDispense(newProp)

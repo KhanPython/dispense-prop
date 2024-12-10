@@ -45,7 +45,8 @@
 - `PropInstance` (Model): A pre-configured model to use for each prop.
 - `CollisionGroup` (string?): The collision group for the props.
 - `AutoDestroyTime` (number?): Time in seconds before all props are destroyed automatically.
-- `AttractDistance` (number?): The maximum distance for props to be attracted to the target.
+- `AttractMagnitude` (number?): The maximum distance for props to be attracted to the target.
+- `AttractSpeed` (number?): How fast the props move whilst being attracted to target.
 - `OnDispense` (function?): Callback invoked when a prop is spawned. Receives the prop instance as an argument.
 - `OnPropClaim` (function?): Callback invoked when a prop is claimed.
 - `OnAllClaimed` (function?): Callback invoked when all props are claimed.
@@ -64,18 +65,23 @@ DispenseProp({
     PropInstance = workspace.PropTemplate,
     CollisionGroup = "Props",
     AutoDestroyTime = 30,
-    AttractDistance = 50,
-    OnDispense = function(prop)
-        print("Prop dispensed:", prop.Name)
+    AttractMagnitude = 50,
+    AttractSpeed = 50,
+ 	OnDispense = function(prop)
+			print("Prop dispensed:", prop.Name)
+			prop.Parent = workspace
 
-        -- You will need to parent props manually, and apply your own dispense logic
-        prop.Parent = workspace
-        prop.PrimaryPart:ApplyImpulse(Vector3.new(0, 10, 0))
-    end,
-    OnPropClaim = function()
-        print("A prop has been claimed!")
-    end,
-    OnAllClaimed = function()
-        print("All props have been claimed!")
-    end,
-}):await()
+			task.defer(function()
+				prop.PrimaryPart:ApplyImpulse(Vector3.new(math.random(-50, 50), 50, math.random(-50, 50)))
+			end)
+		end,
+		OnPropClaim = function()
+			print("A prop has been claimed!")
+		end,
+		OnAllClaimed = function()
+			print("All props have been claimed!")
+		end,
+	}):catch(function(errMessage)
+		warn(tostring(errMessage))
+	end)
+end

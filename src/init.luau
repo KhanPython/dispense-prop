@@ -46,12 +46,14 @@ return function(params: {
 			"AutoDestroyTime must be a number if provided"
 		)
 		assert(
-			not params.AttractMagnitude or (typeof(params.AttractMagnitude) == "number" and params.AttractSpeed > 0),
-			"AttractDistance must be a positive number if provided"
-		)
-		assert(
-			not params.AttractMagnitude or (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0),
-			"AttractSpeed must be a positive number if provided with AttractMagnitude"
+			not params.AttractMagnitude
+				or (
+					typeof(params.AttractMagnitude) == "number"
+					and (
+						not params.AttractSpeed or (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0)
+					)
+				),
+			"If AttractMagnitude is provided, it must be a number, and AttractSpeed (if provided) must be a positive number."
 		)
 		assert(
 			not params.OnDispense or typeof(params.OnDispense) == "function",

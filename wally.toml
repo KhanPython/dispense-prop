@@ -1,6 +1,6 @@
 [package]
-name = "khanpython/prop-spill"
-description = "System for dynamically spilling props in games."
+name = "khanpython/dispense-prop"
+description = "A promise-based system for physically dispensing and attracting in-game props."
 version = "1.0.0"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]

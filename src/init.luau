@@ -6,9 +6,7 @@ local Janitor = require(script.Parent.Janitor)
 local Util = script.Util
 local PropertyUtil = require(Util.Property)
 
-local module = {}
-
-function module.PropSpill(params: {
+return function(params: {
 	Amount: number,
 	Origin: Vector3,
 	TargetObject: Model | BasePart,
@@ -16,7 +14,7 @@ function module.PropSpill(params: {
 	CollisionGroup: string?,
 	AutoDestroyTime: number?,
 	AttractDistance: number?,
-	OnSpill: (Model) -> ()?,
+	OnDispense: (Model) -> ()?,
 	OnPropClaim: () -> ()?,
 	OnAllClaimed: () -> ()?,
 })
@@ -50,7 +48,10 @@ function module.PropSpill(params: {
 			not params.AttractDistance or typeof(params.AttractDistance) == "number",
 			"AttractDistance must be a number if provided"
 		)
-		assert(not params.OnSpill or typeof(params.OnSpill) == "function", "OnSpill must be a function if provided")
+		assert(
+			not params.OnDispense or typeof(params.OnDispense) == "function",
+			"OnDispense must be a function if provided"
+		)
 		assert(
 			not params.OnPropClaim or typeof(params.OnPropClaim) == "function",
 			"OnPropClaim must be a function if provided"
@@ -146,14 +147,12 @@ function module.PropSpill(params: {
 					end
 				end)
 
-				if params.OnSpill and typeof(params.OnSpill) == "function" then
-					params.OnSpill(newProp)
+				if params.OnDispense and typeof(params.OnDispense) == "function" then
+					params.OnDispense(newProp)
 				end
 			end)
 		end
 
-		resolve(propList)
+		resolve()
 	end)
 end
-
-return module

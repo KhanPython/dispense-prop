@@ -1,6 +1,6 @@
 local module = {}
 
-local Promise = require(script.Parent.Parent.Promise)
+local Promise = require(script.Parent.Parent.Parent.promise)
 
 function module.HasProperty(instance: Instance, propertyName: string)
 	return Promise.new(function(resolve, reject)

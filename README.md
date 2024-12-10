@@ -1,28 +1,27 @@
 <div align="center">
 	<h1>Dispense Prop</h1>
-    <p>A promise-based system for physically dispensing and attracting in-game props.</p>
+    <p>A system for physically dispensing and attracting in-game props.</p>
 </div>
 
 
 
-## Features
+### Features
 
 - Spawn a customizable number of props from a specified origin.
 - Automatic Cleanup: Optional auto-destroy timer to remove all props after a specific time.
 - Option to 'attract' the props towards the target object.
 - Initial dispense-behavior is physics driven, while the attract uses CFraming.
 - Hooks for spawn, claim, and completion.
-- Promise-based.
 
 
 ---
 
-## Installation via wally
+### Installation via wally
 
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   dispense-prop = "khanpython/dispense-prop@2.5.2"
+   dispense-prop = "khanpython/dispense-prop@3.0.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -35,53 +34,57 @@
 
 ---
 
-## Usage
+### Parameters
 
+- **`Amount`**: The number of props to spawn. Must be an integer greater than or equal to 1.
+- **`Origin`**: A `Vector3` representing the starting position of the props.
+- **`TargetObject`**: The `Model` or `BasePart` towards which the props will be attracted.
+- **`PropInstance`**: A `Model` that serves as the template for spawned props. Must have a `PrimaryPart` defined.
+- **`CollisionGroup`** *(optional)*: A string specifying the collision group for the props.
+- **`ClearDistance`** *(optional)*: The distance from the `TargetObject` at which a prop is considered "cleared." Defaults to 3.
+- **`ClaimDelay`** *(optional)*: The time in seconds before props can start interacting with the target. Defaults to 3.
+- **`AutoDestroyTime`** *(optional)*: The time in seconds after which all props are automatically destroyed. Defaults to none.
+- **`AttractMagnitude`** *(optional)*: The distance from the target within which props start moving towards it. Defaults to none.
+- **`AttractSpeed`** *(optional)*: The speed at which props move towards the target when attracted. Required if `AttractMagnitude` is defined.
+- **`OnSpawn`** *(optional)*: A callback function triggered when a prop is spawned.
+- **`OnPropCleared`** *(optional)*: A callback function triggered when a single prop is cleared.
+- **`OnAllCleared`** *(optional)*: A callback function triggered when all props are cleared or destroyed.
+  
 
-#### Parameters
-- `Amount` (number): Number of props to spawn. Must be an integer ≥ 1.
-- `Origin` (Vector3): The starting position for the props.
-- `TargetObject` (Model | BasePart): The object towards which props will be attracted.
-- `PropInstance` (Model): A pre-configured model to use for each prop.
-- `CollisionGroup` (string?): The collision group for the props.
-- `AutoDestroyTime` (number?): Time in seconds before all props are destroyed automatically.
-- `AttractMagnitude` (number?): The maximum distance for props to be attracted to the target.
-- `AttractSpeed` (number?): How fast the props move whilst being attracted to target. Must be included if AttractMagnitude is referenced. 
-- `OnDispense` (function?): Callback invoked when a prop is spawned. Receives the prop instance as an argument.
-- `OnPropClaim` (function?): Callback invoked when a prop is claimed.
-- `OnAllClaimed` (function?): Callback invoked when all props are claimed.
+---
 
-#### Returns
-A Promise that resolves soon as the props are instantiated.
-
-#### Example Usage
+### Example Usage
 ```lua
-local DispenseProp = require(script.DispenseProp)
+local DispenseProp = require(path-to-package)
 
-DispenseProp({
-    Amount = 10,
+local props = DispenseProp({
+    Amount = 5,
     Origin = Vector3.new(0, 10, 0),
     TargetObject = workspace.Target,
-    PropInstance = workspace.PropTemplate,
+    PropInstance = game.ReplicatedStorage.PropTemplate,
     CollisionGroup = "Props",
-    AutoDestroyTime = 30,
-    AttractMagnitude = 50,
-    AttractSpeed = 50,
- 	OnDispense = function(prop)
-			print("Prop dispensed:", prop.Name)
-			prop.Parent = workspace
+    ClearDistance = 2,
+    ClaimDelay = 5,
+    AutoDestroyTime = 60,
+    AttractMagnitude = 15,
+    AttractSpeed = 10,
+    OnSpawn = function(prop)
+        print("Prop spawned:", prop)
+        -- You need to manually parent the prop and apply your own `spill` logic
+        prop.Parent = workspace
+        prop.PrimaryPart:ApplyImpulse(
+            Vector3.new(math.random(-10, 10), math.random(5, 10), math.random(-10, 10))
+        )
+    end,
+    OnCleared = function()
+        print("A prop has been cleared!")
+    end,
+    OnAllCleared = function()
+        print("All props have been cleared!")
+    end,
+})
 
-			task.defer(function()
-				prop.PrimaryPart:ApplyImpulse(Vector3.new(math.random(-50, 50), 50, math.random(-50, 50)))
-			end)
-		end,
-		OnPropClaim = function()
-			print("A prop has been claimed!")
-		end,
-		OnAllClaimed = function()
-			print("All props have been claimed!")
-		end,
-	}):catch(function(errMessage)
-		warn(tostring(errMessage))
-	end)
-end
+print("Props in system:", props)
+```
+---
+

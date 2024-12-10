@@ -1,0 +1,13 @@
+[package]
+name = "khanpython/prop-spill"
+description = "System for dynamically spilling props in games."
+version = "1.0.0"
+license = "MIT"
+authors = ["khanpython (https://github.com/KhanPython)"]
+registry = "https://github.com/upliftgames/wally-index"
+realm = "shared"
+exclude = [".vscode"]
+
+[dependencies]
+promise = "evaera/promise@4.0.0"
+janitor = "howmanysmall/janitor@1.15.6"

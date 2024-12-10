@@ -22,7 +22,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   dispense-prop = "khanpython/dispense-prop@1.0.0"
+   dispense-prop = "khanpython/dispense-prop@2.1.1"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash

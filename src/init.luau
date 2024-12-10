@@ -1,7 +1,7 @@
 local RunService = game:GetService("RunService")
 
-local Promise = require(script.Parent.Promise)
-local Janitor = require(script.Parent.Janitor)
+local Promise = require(script.Parent.promise)
+local Janitor = require(script.Parent.janitor)
 
 local Util = script.Util
 local PropertyUtil = require(Util.Property)

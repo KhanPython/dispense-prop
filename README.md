@@ -68,7 +68,8 @@ DispenseProp({
     OnDispense = function(prop)
         print("Prop dispensed:", prop.Name)
 
-        -- You will need to apply your own dispense logic
+        -- You will need to parent props manually, and apply your own dispense logic
+        prop.Parent = workspace
         prop.PrimaryPart:ApplyImpulse(Vector3.new(0, 10, 0))
     end,
     OnPropClaim = function()

@@ -22,7 +22,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   dispense-prop = "khanpython/dispense-prop@2.4.1"
+   dispense-prop = "khanpython/dispense-prop@2.5.1"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -46,7 +46,7 @@
 - `CollisionGroup` (string?): The collision group for the props.
 - `AutoDestroyTime` (number?): Time in seconds before all props are destroyed automatically.
 - `AttractMagnitude` (number?): The maximum distance for props to be attracted to the target.
-- `AttractSpeed` (number?): How fast the props move whilst being attracted to target.
+- `AttractSpeed` (number?): How fast the props move whilst being attracted to target. Must be included if AttractMagnitude is referenced. 
 - `OnDispense` (function?): Callback invoked when a prop is spawned. Receives the prop instance as an argument.
 - `OnPropClaim` (function?): Callback invoked when a prop is claimed.
 - `OnAllClaimed` (function?): Callback invoked when all props are claimed.

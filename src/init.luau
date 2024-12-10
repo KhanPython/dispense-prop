@@ -49,11 +49,9 @@ return function(params: {
 			not params.AttractMagnitude
 				or (
 					typeof(params.AttractMagnitude) == "number"
-					and (
-						not params.AttractSpeed or (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0)
-					)
+					and (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0)
 				),
-			"If AttractMagnitude is provided, it must be a number, and AttractSpeed (if provided) must be a positive number."
+			"If AttractMagnitude is provided, it must be a number. Supplemented AttractSpeed must be a positive number."
 		)
 		assert(
 			not params.OnDispense or typeof(params.OnDispense) == "function",
@@ -107,7 +105,7 @@ return function(params: {
 
 				if distance <= 3 then
 					propJanitor:Cleanup()
-				elseif distance <= params.AttractMagnitude then
+				elseif params.AttractMagnitude and distance <= params.AttractMagnitude then
 					PropertyUtil.SetProperty(prop, {
 						Anchored = true,
 						CanCollide = false,

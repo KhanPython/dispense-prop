@@ -1,7 +1,7 @@
 [package]
 name = "khanpython/dispense-prop"
 description = "A promise-based system for physically dispensing and attracting in-game props."
-version = "2.4.1"
+version = "2.5.1"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
 registry = "https://github.com/upliftgames/wally-index"

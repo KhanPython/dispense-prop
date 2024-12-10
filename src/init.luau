@@ -39,11 +39,11 @@ return function(params: {
 
 		assert(
 			not params.CollisionGroup or typeof(params.CollisionGroup) == "string",
-			"CollisionGroup must be a string if provided"
+			"CollisionGroup must be a string"
 		)
 		assert(
-			not params.AutoDestroyTime or typeof(params.AutoDestroyTime) == "number",
-			"AutoDestroyTime must be a number if provided"
+			not params.AutoDestroyTime or (typeof(params.AutoDestroyTime) == "number" and params.AutoDestroyTime > 0),
+			"AutoDestroyTime must be a positive number"
 		)
 		assert(
 			not params.AttractMagnitude
@@ -51,20 +51,11 @@ return function(params: {
 					typeof(params.AttractMagnitude) == "number"
 					and (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0)
 				),
-			"If AttractMagnitude is provided, it must be a number. Supplemented AttractSpeed must be a positive number."
+			"AttractMagnitude must be a number. Must also reference AttractSpeed which expects a positive number."
 		)
-		assert(
-			not params.OnDispense or typeof(params.OnDispense) == "function",
-			"OnDispense must be a function if provided"
-		)
-		assert(
-			not params.OnPropClaim or typeof(params.OnPropClaim) == "function",
-			"OnPropClaim must be a function if provided"
-		)
-		assert(
-			not params.OnAllClaimed or typeof(params.OnAllClaimed) == "function",
-			"OnAllClaimed must be a function if provided"
-		)
+		assert(not params.OnDispense or typeof(params.OnDispense) == "function", "OnDispense must be a function")
+		assert(not params.OnPropClaim or typeof(params.OnPropClaim) == "function", "OnPropClaim must be a function")
+		assert(not params.OnAllClaimed or typeof(params.OnAllClaimed) == "function", "OnAllClaimed must be a function")
 
 		params.Amount = math.max(1, params.Amount)
 

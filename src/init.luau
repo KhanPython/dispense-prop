@@ -117,7 +117,7 @@ return function(params: {
 				local moveDistance = math.min(speed * dT, distance)
 				local newPosition = propPosition + direction * moveDistance
 
-				prop:PivotTo(CFrame.new(newPosition))
+				prop:PivotTo(CFrame.new(newPosition, targetPosition))
 			else
 				PropertyUtil.SetProperty(prop, {
 					Anchored = false,

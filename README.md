@@ -1,27 +1,26 @@
 <div align="center">
-	<h1>Dispense Prop</h1>
-    <p>A system for physically dispensing and attracting in-game props.</p>
+	<h1>Prop Dispenser</h1>
+    <p>System for physically dispensing and attracting in-game props towards a target.</p>
 </div>
 
-
+---
 
 ### Features
 
 - Spawn a customizable number of props from a specified origin.
-- Automatic Cleanup: Optional auto-destroy timer to remove all props after a specific time.
-- Option to 'attract' the props towards the target object.
-- Initial dispense-behavior is physics driven, while the attract uses CFraming.
-- Hooks for spawn, claim, and completion.
-
+- Automatic removal of props after a configurable time.
+- Attraction mechanism to move props towards a target object.
+- Physics-based dispensing logic.
+- Event hooks for spawn, removal, and group completion (onAllRemoved).
 
 ---
 
-### Installation via wally
+### Installation via Wally
 
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   dispense-prop = "khanpython/dispense-prop@3.3.0"
+   dispense-prop = "khanpython/dispense-prop@4.0.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -29,62 +28,83 @@
     ```
 4. The package will be placed in your Packages folder. Use the following code snippet to require it in your project:
     ```lua
-    local DispenseProp = require(path-to-package)
+    local PropManager = require(path-to-package)
     ```
 
 ---
 
 ### Parameters
 
-- **`Amount`**: The number of props to spawn. Must be an integer greater than or equal to 1.
-- **`Origin`**: A `Vector3` representing the starting position of the props.
-- **`TargetObject`**: The `Model` or `BasePart` towards which the props will be attracted.
-- **`PropInstance`**: A `Model` that serves as the template for spawned props. Must have a `PrimaryPart` defined.
-- **`CollisionGroup`** *(optional)*: A string specifying the collision group for the props.
-- **`ClearDistance`** *(optional)*: The distance from the `TargetObject` at which a prop is considered "cleared." Defaults to 3.
-- **`ClaimDelay`** *(optional)*: The time in seconds before props can start interacting with the target. Defaults to 3.
-- **`AutoDestroyTime`** *(optional)*: The time in seconds after which all props are automatically destroyed. Defaults to none.
-- **`AttractMagnitude`** *(optional)*: The distance from the target within which props start moving towards it. Defaults to none.
-- **`AttractSpeed`** *(optional)*: The speed at which props move towards the target when attracted. Required if `AttractMagnitude` is defined.
-- **`OnSpawn`** *(optional)*: A callback function triggered when a prop is spawned.
-- **`OnPropCleared`** *(optional)*: A callback function triggered when a single prop is cleared.
-- **`OnAllCleared`** *(optional)*: A callback function triggered when all props are cleared or destroyed.
-  
+#### `PropManager:Start(amount, originCFrame, propTemplate, targetInstance, settings)`
+
+| Parameter        | Type            | Description                                                                 |
+|------------------|-----------------|-----------------------------------------------------------------------------|
+| `amount`         | `number`        | The number of props to spawn. Must be an integer.                          |
+| `originCFrame`   | `CFrame`        | The starting position for the props.                                       |
+| `propTemplate`   | `Model or BasePart`| A template instance to clone for each prop.                                |
+| `targetInstance` | `Model or BasePart`| The target instance towards which props may be attracted.                  |
+| `settings`       | `table`         | A table of configuration options for the props. See details below.         |
+
+#### `settings` Table
+
+| Key               | Type             | Default      | Description                                                                 |
+|--------------------|------------------|--------------|-----------------------------------------------------------------------------|
+| `RemoveMagnitude` | `number?`        | `5`          | The distance within which a prop is automatically removed.                  |
+| `AttractSpeed`    | `number?`        | `10`         | The speed at which props move towards the target.                           |
+| `AttractMagnitude`| `number?`        | `nil`        | The range within which props start moving towards the target.               |
+| `AttractDelay`      | `number?`        | `1`          | Time delay before props become 'live' after spawning. Live implying that the prop can be attracted and claimed by the target Instance.                      |
+| `AutoRemoveTime`  | `number?`        | `nil`        | Time in seconds before props are automatically removed.                     |
+| `CollisionGroup`  | `string?`        | `Default`    | The collision group assigned to props.                                      |
+| `OnSpawn`         | `function`       | `nil`        | A function executed when a prop is spawned.                                 |
+| `OnRemoved`       | `function?`      | `nil`        | A function executed when a prop is removed.                                 |
+| `OnAllRemoved`    | `function?`      | `nil`        | A function executed when all props in a group are removed.                  |
 
 ---
 
 ### Example Usage
-```lua
-local DispenseProp = require(path-to-package)
 
-local props = DispenseProp({
-    Amount = 5,
-    Origin = Vector3.new(0, 10, 0),
-    TargetObject = workspace.Target,
-    PropInstance = game.ReplicatedStorage.PropTemplate,
-    CollisionGroup = "Props",
-    ClearDistance = 2,
-    ClaimDelay = 5,
-    AutoDestroyTime = 60,
-    AttractMagnitude = 15,
-    AttractSpeed = 10,
+```lua
+local PropManager = require(path-to-package)
+
+-- Define settings for the props
+local settings = {
+    RemoveMagnitude = 5,
+    AttractSpeed = 15,
+    AttractMagnitude = 20,
+    AttractDelay = 3,
+    AutoRemoveTime = 30,
+    CollisionGroup = "CustomGroup",
     OnSpawn = function(prop)
-        print("Prop spawned:", prop)
-        -- You need to manually parent the prop and apply your own `spill` logic
+        print("Spawned prop:", prop)
+
+        -- You must manually parent the prop
         prop.Parent = workspace
+
+        local randomX = math.random(-10, 10)
+        local randomY = math.random(5, 10)
+        local randomZ = math.random(-10, 10)
+
+        -- Your `spill` logic
         prop.PrimaryPart:ApplyImpulse(
-            Vector3.new(math.random(-10, 10), math.random(5, 10), math.random(-10, 10))
+            Vector3.new(randomX, randomY, randomZ)
         )
     end,
-    OnCleared = function()
-        print("A prop has been cleared!")
+    OnRemoved = function(byAutoRemove)
+        print("Prop removed.")
     end,
-    OnAllCleared = function()
-        print("All props have been cleared!")
+    OnAllRemoved = function()
+        print("All props removed.")
     end,
-})
+}
 
-print("Props in system:", props)
+-- Start spawning props
+PropManager:Start(
+    10,                 -- Number of props
+    CFrame.new(0, 10, 0), -- Origin position
+    workspace.PropTemplate, -- Template prop instance
+    workspace.Target,       -- Target instance
+    settings                -- Settings table
+)
 ```
----
 
+---

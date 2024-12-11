@@ -1,171 +1,261 @@
+--!strict
+--!native
+--!optimize 2
+
+local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
-local Janitor = require(script.Parent.janitor)
+local PropertyUtil = require(script.Util.Property)
 
-local Util = script.Util
-local PropertyUtil = require(Util.Property)
-
-local CLEAR_DISTANCE = 3
-local CLAIM_DELAY = 3
-
-return function(params: {
-	Amount: number,
-	Origin: Vector3,
-	TargetObject: Model | BasePart,
-	PropInstance: Model,
-	CollisionGroup: string?,
-	ClearDistance: number?,
-	ClaimDelay: number?,
-	AutoDestroyTime: number?,
-	AttractMagnitude: number?,
+export type PropInstance = Model | BasePart
+export type TargetInstance = Model | BasePart
+export type PropSettings = {
+	RemoveMagnitude: number?,
 	AttractSpeed: number?,
-	OnSpawn: (Model) -> ()?,
-	OnCleared: () -> ()?,
-	OnAllCleared: () -> ()?,
-}): { Model }
-	do
-		assert(
-			typeof(params.Amount) == "number" and params.Amount % 1 == 0,
-			"Amount must be an integer number greater than or equal to 1"
-		)
-		assert(typeof(params.Origin) == "Vector3", "Origin must be a Vector3")
-		assert(
-			typeof(params.TargetObject) == "Instance"
-				and (params.TargetObject:IsA("Model") or params.TargetObject:IsA("BasePart")),
-			"TargetObject must be a Model or BasePart"
-		)
-		assert(
-			typeof(params.PropInstance) == "Instance" and params.PropInstance:IsA("Model"),
-			"PropInstance must be a Model"
-		)
-		assert(params.PropInstance.PrimaryPart, "PropInstance must have a PrimaryPart assigned!")
-		assert(
-			not params.CollisionGroup or typeof(params.CollisionGroup) == "string",
-			"CollisionGroup must be a string"
-		)
-		assert(
-			not params.ClearDistance or (typeof(params.ClearDistance) == "number" and params.ClearDistance > 0),
-			"ClearDistance must be a positive number"
-		)
-		assert(
-			not params.ClaimDelay or (typeof(params.ClaimDelay) == "number" and params.ClaimDelay > 0),
-			"ClaimDelay must be a positive number"
-		)
-		assert(
-			not params.AutoDestroyTime or (typeof(params.AutoDestroyTime) == "number" and params.AutoDestroyTime > 0),
-			"AutoDestroyTime must be a positive number"
-		)
-		assert(
-			not params.AttractMagnitude
-				or (
-					typeof(params.AttractMagnitude) == "number"
-					and (typeof(params.AttractSpeed) == "number" and params.AttractSpeed > 0)
-				),
-			"AttractMagnitude must be a number. Must also reference AttractSpeed which expects a positive number."
-		)
-		assert(not params.OnSpawn or typeof(params.OnSpawn) == "function", "OnSpawn must be a function")
-		assert(not params.OnCleared or typeof(params.OnCleared) == "function", "OnCleared must be a function")
-		assert(not params.OnAllCleared or typeof(params.OnAllCleared) == "function", "OnAllCleared must be a function")
+	AttractMagnitude: number?,
+	AttractDelay: number?,
+	AutoRemoveTime: number?,
+	CollisionGroup: string?,
+	OnSpawn: (PropInstance) -> (),
+	OnRemoved: ((boolean?) -> ())?, -- returns a boolean, to indicate if the cleared has been the result of an automatic clean-up
+	OnAllRemoved: (() -> ())?,
+}
+export type PropData = {
+	Instance: PropInstance,
+	Target: TargetInstance,
+	SpawnTime: number,
+	Settings: PropSettings,
+	AncestryChanged: RBXScriptConnection,
+}
+
+local PropManager = {}
+
+PropManager.ActiveProps = {}
+
+PropManager.Defaults = {
+	ClearMagnitude = 5,
+	AttractSpeed = 10,
+	AttractDelay = 1,
+	CollisionGroup = "Default",
+}
+
+local function updateProp(propData: PropData, dT: number)
+	local prop = propData.Instance
+	local target = propData.Target
+	local settings = propData.Settings
+	local elapsedTime = os.clock() - propData.SpawnTime
+
+	-- If `AutoDestroyTime` given and elapsed time exceeded, remove the prop
+	if propData.Settings.AutoRemoveTime and elapsedTime >= propData.Settings.AutoRemoveTime then
+		if settings.OnRemoved and typeof(settings.OnRemoved) == "RBXScriptConnection" then
+			settings.OnRemoved(true)
+		end
+
+		PropManager:_RemoveProp(prop)
+		return
 	end
 
-	local propJanitorMap = {}
-	local propList = {}
-	local elapsed = os.time()
-	local newJan = Janitor.new()
+	-- Wait for the claim delay before processing logic
+	if elapsedTime < (settings.AttractDelay or PropManager.Defaults.AttractDelay) then
+		return
+	end
 
-	params.ClearDistance = params.ClearDistance or CLEAR_DISTANCE
-	params.ClaimDelay = params.ClaimDelay or CLAIM_DELAY
+	local targetPosition = target:GetPivot().Position
+	local propPosition = prop:GetPivot().Position
+	local distance = (targetPosition - propPosition).Magnitude
 
-	newJan:Add(function()
-		if params.OnAllCleared and typeof(params.OnAllCleared) == "function" then
-			params.OnAllCleared()
+	-- Clear the prop if it's within the clear distance
+	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude) then
+		if settings.OnRemoved and typeof(settings.OnRemoved) == "RBXScriptConnection" then
+			settings.OnRemoved()
+		end
+
+		PropManager:_RemoveProp(prop)
+		return
+	end
+
+	-- Start attraction if within the attract magnitude
+	if settings.AttractMagnitude and distance <= settings.AttractMagnitude then
+		PropertyUtil.SetProperty(prop, {
+			Anchored = true,
+			CanCollide = false,
+		})
+
+		local direction = (targetPosition - propPosition).Unit
+		local moveDistance = math.min((settings.AttractSpeed or PropManager.Defaults.AttractSpeed) * dT, distance)
+		local newPosition = propPosition + direction * moveDistance
+		prop:PivotTo(CFrame.new(newPosition, targetPosition))
+	else
+		PropertyUtil.SetProperty(prop, {
+			Anchored = false,
+			CanCollide = true,
+		})
+	end
+end
+
+function PropManager:_AddProp(
+	groupId: string,
+	originCFrame: CFrame,
+	propTemplate: PropInstance,
+	targetInstance: TargetInstance,
+	settings: PropSettings
+)
+	local propInstance = propTemplate:Clone()
+	if not self.ActiveProps[groupId] then
+		return
+	end
+
+	if settings.OnSpawn and typeof(settings.OnSpawn) == "RBXScriptConnection" then
+		local success, errMessage = pcall(function()
+			settings.OnSpawn(propInstance)
+		end)
+
+		if not success then
+			propInstance:Destroy()
+
+			error(`OnSpawn error: {errMessage}`)
+		end
+
+		-- In-case the prop instance has been removed via OnSpawn
+		if not propInstance or not propInstance:IsDescendantOf(game) then
+			error("OnSpawn error: propInstance prematurely destroyed")
+		end
+	end
+
+	local ancestryChangedConnection
+
+	-- Clean-up logic
+	ancestryChangedConnection = propInstance.AncestryChanged:Connect(function()
+		if propInstance:IsDescendantOf(game) then
+			return
+		end
+
+		if ancestryChangedConnection and typeof(ancestryChangedConnection) == "RBXScriptConnection" then
+			ancestryChangedConnection:Disconnect()
+		end
+
+		self.ActiveProps[groupId][propInstance] = nil
+		if next(self.ActiveProps[groupId]) == nil and settings.OnAllRemoved then
+			settings.OnAllRemoved()
 		end
 	end)
 
-	newJan:Add(RunService.Heartbeat:Connect(function(dT)
-		local currentTime = os.time()
-		if currentTime - elapsed < params.ClaimDelay then
-			return
-		end
+	self.ActiveProps[groupId][propInstance] = {
+		Instance = propInstance,
+		Settings = settings,
+		Target = targetInstance,
+		SpawnTime = os.clock(),
+		AncestryChanged = ancestryChangedConnection,
+	} :: PropData
 
-		if next(propJanitorMap) == nil then
-			newJan:Destroy()
-			return
-		end
+	propInstance:PivotTo(originCFrame)
 
-		if params.AutoDestroyTime and (currentTime - elapsed >= params.AutoDestroyTime) then
-			newJan:Destroy()
-			return
-		end
+	PropertyUtil.SetProperty(propInstance, {
+		CanTouch = false,
+		CanQuery = false,
+		CanCollide = true,
+		Anchored = false,
+		CollisionGroup = settings.CollisionGroup or PropManager.Defaults.CollisionGroup,
+	})
+end
 
-		local targetPosition = params.TargetObject:GetPivot().Position
-		local speed = params.AttractSpeed
+function PropManager:_RemoveProp(propInstance: PropInstance)
+	if not propInstance or typeof(propInstance) ~= "Instance" then
+		return
+	end
 
-		for prop, propJanitor in pairs(propJanitorMap) do
-			local propPosition = prop:GetPivot().Position
-			local direction = (targetPosition - propPosition).Unit
-			local distance = (targetPosition - propPosition).Magnitude
+	if not propInstance:IsDescendantOf(game) then
+		return
+	end
 
-			if distance <= params.ClearDistance then
-				propJanitor:Cleanup()
-			elseif params.AttractMagnitude and distance <= params.AttractMagnitude then
-				PropertyUtil.SetProperty(prop, {
-					Anchored = true,
-					CanCollide = false,
-				})
+	propInstance:Destroy()
+end
 
-				local moveDistance = math.min(speed * dT, distance)
-				local newPosition = propPosition + direction * moveDistance
+function PropManager:_Update(dT: number)
+	debug.profilebegin("PropDispenser")
 
-				prop:PivotTo(CFrame.new(newPosition, targetPosition))
-			else
-				PropertyUtil.SetProperty(prop, {
-					Anchored = false,
-					CanCollide = true,
-				})
-			end
-		end
-	end))
-
-	for _ = 1, params.Amount do
-		local newProp = params.PropInstance:Clone()
-
-		local propJanitor = Janitor.new()
-		newJan:Add(propJanitor, "Destroy")
-		propJanitor:Add(newProp, "Destroy")
-
-		propJanitorMap[newProp] = propJanitor
-		propList[newProp] = true
-
-		propJanitor:Add(function()
-			if newJan.CurrentlyCleaning then
-				return
-			end
-
-			propJanitorMap[newProp] = nil
-			propList[newProp] = nil
-
-			if params.OnCleared and typeof(params.OnCleared) == "function" then
-				params.OnCleared()
-			end
-		end)
-
-		do
-			PropertyUtil.SetProperty(newProp, {
-				CanTouch = false,
-				CanQuery = false,
-				CanCollide = true,
-				Anchored = false,
-				Massless = false,
-				CollisionGroup = params.CollisionGroup,
-			})
-			newProp:PivotTo(CFrame.new(params.Origin))
-		end
-
-		if params.OnSpawn and typeof(params.OnSpawn) == "function" then
-			params.OnSpawn(newProp)
+	for groupId, groupData in pairs(self.ActiveProps) do
+		for propInstance, propData in pairs(groupData) do
+			updateProp(propData, dT)
 		end
 	end
 
-	return propList
+	debug.profileend()
 end
+
+RunService.Heartbeat:Connect(function(dT: number)
+	PropManager:_Update(dT)
+end)
+
+function PropManager:Start(
+	amount: number,
+	originCFrame: CFrame,
+	propTemplate: PropInstance,
+	targetInstance: TargetInstance,
+	settings: PropSettings
+)
+	do
+		assert(
+			typeof(amount) == "number" and amount % 1 == 0,
+			"amount must be an integer number greater than or equal to 1"
+		)
+		assert(
+			typeof(propTemplate) == "Instance" and (propTemplate:IsA("Model") or propTemplate:IsA("BasePart")),
+			"propTemplate must be a Model"
+		)
+		assert(
+			typeof(targetInstance) == "Instance" and (targetInstance:IsA("Model") or targetInstance:IsA("BasePart")),
+			"targetInstance must be a Model or BasePart"
+		)
+		assert(typeof(settings) == "table", "settings must be a table")
+		assert(typeof(originCFrame) == "CFrame", "OriginCFrame must be a CFrame")
+
+		---
+		assert(
+			not settings.CollisionGroup or typeof(settings.CollisionGroup) == "string",
+			"CollisionGroup must be a string"
+		)
+		assert(
+			not settings.RemoveMagnitude
+				or (typeof(settings.RemoveMagnitude) == "number" and settings.RemoveMagnitude > 0),
+			"RemoveMagnitude must be a positive number"
+		)
+		assert(
+			not settings.AttractDelay or (typeof(settings.AttractDelay) == "number" and settings.AttractDelay > 0),
+			"AttractDelay must be a positive number"
+		)
+		assert(
+			not settings.AutoRemoveTime or (typeof(settings.AutoRemoveTime) == "number" and settings.AutoRemoveTime > 0),
+			"AutoRemoveTime must be a positive number"
+		)
+		assert(
+			not settings.AttractMagnitude
+				or (
+					(typeof(settings.AttractMagnitude) == "number" and settings.AttractMagnitude > 0)
+					and (typeof(settings.AttractSpeed) == "number" and settings.AttractSpeed > 0)
+				),
+			"AttractMagnitude and AttractSpeed must be positive numbers if is specified."
+		)
+		assert(typeof(settings.OnSpawn) == "function", "OnSpawn must be a function")
+		assert(not settings.OnRemoved or typeof(settings.OnRemoved) == "function", "OnRemoved must be a function")
+		assert(
+			not settings.OnAllRemoved or typeof(settings.OnAllRemoved) == "function",
+			"OnAllRemoved must be a function"
+		)
+	end
+
+	local groupId = HttpService:GenerateGUID(false)
+	self.ActiveProps[groupId] = {}
+
+	xpcall(function()
+		for i = 1, amount do
+			PropManager:_AddProp(groupId, originCFrame, propTemplate, targetInstance, settings)
+		end
+	end, function()
+		if self.ActiveProps[groupId] then
+			self.ActiveProps[groupId] = nil
+		end
+	end)
+end
+
+return PropManager

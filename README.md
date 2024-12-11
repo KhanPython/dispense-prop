@@ -7,17 +7,17 @@
 
 ---
 
-### Features
+### Features:
 
-- Customizable Prop Spawning: Spawn a specified number of props from a given origin with configurable settings.
-- Automatic Prop Removal: Optionally remove props automatically after a configurable duration.
-- Attraction Mechanism:  Move props toward a target object within a defined attraction distance, with optional physics-based motion.
-- Physics-Based Dispensing: Simulate natural, physics-driven prop dispensing. The latter attraction works by per-frame positional changes using PivotTo.
-- Event Callbacks: Attach custom logic to prop spawn, removal, and group completion events for added flexibility.
+- **Customizable Prop Spawning:** Spawn a specified number of props from a given origin with configurable settings.
+- **Automatic Prop Removal:** Optionally remove props automatically after a configurable duration.
+- **Attraction Mechanism:**  Move props toward a target object within a defined attraction distance, with optional physics-based motion.
+- **Physics-Based Dispensing:** Simulate natural, physics-driven prop dispensing. The latter attraction works by per-frame positional changes using PivotTo.
+- **Event Callbacks:** Attach custom logic to prop spawn, removal, and group completion events for added flexibility.
 
 ---
 
-### Installation via Wally
+### Installation via Wally:
 
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
@@ -35,7 +35,7 @@
 
 ---
 
-### Parameters
+### Parameters:
 
 #### `PropManager:Start(amount, originCFrame, propTemplate, targetInstance, settings)`
 
@@ -63,7 +63,7 @@
 
 ---
 
-### Example Usage
+### Example Usage:
 
 ```lua
 local PropDispenser = require(path-to-package)
@@ -123,4 +123,8 @@ PropDispenser:Start(
     settings                -- Settings table
 )
 ```
-
+---
+### Non-goals:
+- **Cross-client Compatibility:** The system is not designed to function across multiple clients simultaneously. It focuses on single-client interactions and is not optimized for distributing prop across a networked environment.
+- **Massive-Scale Prop Management:** The design is optimized for small to moderate numbers of props. Handling thousands of active props simultaneously is not within the intended use case due to performance constraints.
+- **Dynamic Configuration Changes:** Settings like `AttractMagnitude`, `RemoveMagnitude`, and `CollisionGroup` are static once the system starts. Dynamically updating these configurations at runtime is not recommended.

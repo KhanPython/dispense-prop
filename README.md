@@ -1,7 +1,9 @@
 <div align="center">
 	<h1>Prop Dispenser</h1>
     <p>System for physically dispensing and attracting in-game props towards a target.</p>
+     <img src="https://media.giphy.com/media/mt6Ct3gpcAOVzwk95i/giphy.gif" width="350" height="350" alt="Prop Dispenser Demo">
 </div>
+
 
 ---
 
@@ -9,7 +11,7 @@
 
 - Spawn a customizable number of props from a specified origin.
 - Automatic removal of props after a configurable time.
-- Attraction mechanism to move props towards a target object.
+- An optional attraction mechanism to move props towards a target object.
 - Physics-based dispensing logic.
 - Event hooks for spawn, removal, and group completion (onAllRemoved).
 
@@ -111,4 +113,3 @@ PropDispenser:Start(
 )
 ```
 
----

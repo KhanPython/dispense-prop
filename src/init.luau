@@ -82,7 +82,7 @@ return function(params: {
 		end
 	end)
 
-	newJan:Add(RunService.RenderStepped:Connect(function(dT)
+	newJan:Add(RunService.Heartbeat:Connect(function(dT)
 		local currentTime = os.time()
 		if currentTime - elapsed < params.ClaimDelay then
 			return
@@ -112,7 +112,7 @@ return function(params: {
 				PropertyUtil.SetProperty(prop, {
 					Anchored = true,
 					CanCollide = false,
-				}):await()
+				})
 
 				local moveDistance = math.min(speed * dT, distance)
 				local newPosition = propPosition + direction * moveDistance
@@ -121,7 +121,7 @@ return function(params: {
 			else
 				PropertyUtil.SetProperty(prop, {
 					Anchored = false,
-				}):await()
+				})
 			end
 		end
 	end))
@@ -157,7 +157,7 @@ return function(params: {
 				Anchored = false,
 				Massless = false,
 				CollisionGroup = params.CollisionGroup,
-			}):await()
+			})
 			newProp:PivotTo(CFrame.new(params.Origin))
 		end
 

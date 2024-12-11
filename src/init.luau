@@ -121,6 +121,7 @@ return function(params: {
 			else
 				PropertyUtil.SetProperty(prop, {
 					Anchored = false,
+					CanCollide = true,
 				})
 			end
 		end

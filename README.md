@@ -64,7 +64,7 @@
 ### Example Usage
 
 ```lua
-local PropManager = require(path-to-package)
+local PropDispenser = require(path-to-package)
 
 -- Define settings for the props
 local settings = {
@@ -98,7 +98,7 @@ local settings = {
 }
 
 -- Start spawning props
-PropManager:Start(
+PropDispenser:Start(
     10,                 -- Number of props
     CFrame.new(0, 10, 0), -- Origin position
     workspace.PropTemplate, -- Template prop instance

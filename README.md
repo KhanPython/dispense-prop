@@ -77,7 +77,7 @@ local settings = {
     AutoRemoveTime = 30,
     CollisionGroup = "CustomGroup",
 
-    --! Imporant: Avoid yielding any of the callbacks v
+    --! Imporant: Avoid yielding any of the callbacks. `OnSpawn` could be an exception, though it may lead to unexpected results.
     OnSpawn = function(prop)
         print("Spawned prop:", prop)
 

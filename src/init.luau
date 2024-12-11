@@ -47,7 +47,7 @@ local function updateProp(propData: PropData, dT: number)
 
 	-- If `AutoDestroyTime` given and elapsed time exceeded, remove the prop
 	if propData.Settings.AutoRemoveTime and elapsedTime >= propData.Settings.AutoRemoveTime then
-		if settings.OnRemoved and typeof(settings.OnRemoved) == "RBXScriptConnection" then
+		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
 			settings.OnRemoved(true)
 		end
 
@@ -66,7 +66,7 @@ local function updateProp(propData: PropData, dT: number)
 
 	-- Clear the prop if it's within the clear distance
 	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude) then
-		if settings.OnRemoved and typeof(settings.OnRemoved) == "RBXScriptConnection" then
+		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
 			settings.OnRemoved()
 		end
 
@@ -101,11 +101,9 @@ function PropManager:_AddProp(
 	settings: PropSettings
 )
 	local propInstance = propTemplate:Clone()
-	if not self.ActiveProps[groupId] then
-		return
-	end
+	assert(self.ActiveProps[groupId], `Unable to find an Active Prop Group under: {groupId}`)
 
-	if settings.OnSpawn and typeof(settings.OnSpawn) == "RBXScriptConnection" then
+	if settings.OnSpawn and typeof(settings.OnSpawn) == "function" then
 		local success, errMessage = pcall(function()
 			settings.OnSpawn(propInstance)
 		end)
@@ -247,15 +245,19 @@ function PropManager:Start(
 	local groupId = HttpService:GenerateGUID(false)
 	self.ActiveProps[groupId] = {}
 
-	xpcall(function()
+	local success, errMessage = pcall(function()
 		for i = 1, amount do
 			PropManager:_AddProp(groupId, originCFrame, propTemplate, targetInstance, settings)
 		end
-	end, function()
+	end)
+
+	if not success then
 		if self.ActiveProps[groupId] then
 			self.ActiveProps[groupId] = nil
 		end
-	end)
+
+		error(errMessage)
+	end
 end
 
 return PropManager

@@ -77,7 +77,7 @@ local settings = {
     AutoRemoveTime = 30,
     CollisionGroup = "CustomGroup",
 
-    --! Imporant: Avoid yielding on any of the callbacks v
+    --! Imporant: Avoid yielding any of the callbacks v
     OnSpawn = function(prop)
         print("Spawned prop:", prop)
 

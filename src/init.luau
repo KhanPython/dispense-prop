@@ -17,7 +17,7 @@ export type PropSettings = {
 	AutoRemoveTime: number?,
 	CollisionGroup: string?,
 	OnSpawn: (PropInstance) -> (),
-	OnRemoved: ((boolean?) -> ())?, -- returns a boolean, to indicate if the cleared has been the result of an automatic clean-up
+	OnRemoved: ((boolean?) -> ())?,
 	OnAllRemoved: (() -> ())?,
 }
 export type PropData = {
@@ -45,13 +45,13 @@ local function updateProp(propData: PropData, dT: number)
 	local settings = propData.Settings
 	local elapsedTime = os.clock() - propData.SpawnTime
 
-	-- If `AutoDestroyTime` given and elapsed time exceeded, remove the prop
+	-- If `AutoDestroyTime` was given and elapsed time exceeded, remove the prop
 	if propData.Settings.AutoRemoveTime and elapsedTime >= propData.Settings.AutoRemoveTime then
+		PropManager:_RemoveProp(prop)
 		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
 			settings.OnRemoved(true)
 		end
 
-		PropManager:_RemoveProp(prop)
 		return
 	end
 
@@ -66,30 +66,53 @@ local function updateProp(propData: PropData, dT: number)
 
 	-- Clear the prop if it's within the clear distance
 	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude) then
+		PropManager:_RemoveProp(prop)
 		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
 			settings.OnRemoved()
 		end
 
-		PropManager:_RemoveProp(prop)
 		return
+	end
+
+	--? Not a literal root part
+	local rootPart
+	if prop:IsA("Model") then
+		if not prop.PrimaryPart then
+			warn("Received a propInstance as a Model with no PrimaryPart. Removing the propInstance...")
+
+			PropManager:_RemoveProp(prop)
+			if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
+				settings.OnRemoved(true)
+			end
+
+			return
+		end
+
+		rootPart = prop.PrimaryPart
+	else
+		rootPart = prop
 	end
 
 	-- Start attraction if within the attract magnitude
 	if settings.AttractMagnitude and distance <= settings.AttractMagnitude then
-		PropertyUtil.SetProperty(prop, {
-			Anchored = true,
-			CanCollide = false,
-		})
+		if not rootPart.Anchored or rootPart.CanCollide then
+			PropertyUtil.SetProperty(prop, {
+				Anchored = true,
+				CanCollide = false,
+			})
+		end
 
 		local direction = (targetPosition - propPosition).Unit
 		local moveDistance = math.min((settings.AttractSpeed or PropManager.Defaults.AttractSpeed) * dT, distance)
 		local newPosition = propPosition + direction * moveDistance
 		prop:PivotTo(CFrame.new(newPosition, targetPosition))
 	else
-		PropertyUtil.SetProperty(prop, {
-			Anchored = false,
-			CanCollide = true,
-		})
+		if rootPart.Anchored or not rootPart.CanCollide then
+			PropertyUtil.SetProperty(prop, {
+				Anchored = false,
+				CanCollide = true,
+			})
+		end
 	end
 end
 
@@ -109,7 +132,7 @@ function PropManager:_AddProp(
 		end)
 
 		if not success then
-			propInstance:Destroy()
+			self:_RemoveProp(propInstance)
 
 			error(`OnSpawn error: {errMessage}`)
 		end
@@ -198,9 +221,11 @@ function PropManager:Start(
 			"amount must be an integer number greater than or equal to 1"
 		)
 		assert(
-			typeof(propTemplate) == "Instance" and (propTemplate:IsA("Model") or propTemplate:IsA("BasePart")),
-			"propTemplate must be a Model"
+			typeof(propTemplate) == "Instance"
+				and ((propTemplate:IsA("Model") and propTemplate.PrimaryPart) or propTemplate:IsA("BasePart")),
+			"propTemplate must be a Model with a PrimaryPart or a BasePart"
 		)
+
 		assert(
 			typeof(targetInstance) == "Instance" and (targetInstance:IsA("Model") or targetInstance:IsA("BasePart")),
 			"targetInstance must be a Model or BasePart"

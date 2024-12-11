@@ -9,11 +9,11 @@
 
 ### Features
 
-- Spawn a customizable number of props from a specified origin.
-- Automatic removal of props after a configurable time.
-- An optional attraction mechanism to move props towards a target object.
-- Physics-based dispensing logic.
-- Event hooks for spawn, removal, and group completion (onAllRemoved).
+- Customizable Prop Spawning: Spawn a specified number of props from a given origin with configurable settings.
+- Automatic Prop Removal: Optionally remove props automatically after a configurable duration.
+- Attraction Mechanism:  Move props toward a target object within a defined attraction distance, with optional physics-based motion.
+- Physics-Based Dispensing: Simulate natural, physics-driven prop dispensing. The latter attraction works by per-frame positional changes using PivotTo.
+- Event Callbacks: Attach custom logic to prop spawn, removal, and group completion events for added flexibility.
 
 ---
 
@@ -97,9 +97,20 @@ local settings = {
     end,
     OnRemoved = function(byAutoRemove)
         print("Prop removed.")
+
+        --[[
+            * This hook is triggered whenever a single prop is removed. 
+            * The `byAutoRemove` parameter indicates whether the removal was due to the automatic removal timer (`true`), or because the prop was cleared/claimed by the target (`false`).
+            * For example, you could use this to send a message to the server to reward the player and update a pool of claimable rewards.
+        ]]
     end,
     OnAllRemoved = function()
         print("All props removed.")
+
+        --[[
+            * This hook is triggered when all props in the current group have been removed, regardless of whether the removals occurred due to automatic removal or clearing/claiming by the target.
+            * Use this to execute any logic that depends on the entire group being cleared, such as finalizing a reward process
+        ]]
     end,
 }
 

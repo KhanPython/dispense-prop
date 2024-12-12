@@ -78,7 +78,7 @@ local function updateProp(propData: PropData, dT: number)
 	local rootPart
 	if prop:IsA("Model") then
 		if not prop.PrimaryPart then
-			warn("Received a propInstance as a Model with no PrimaryPart. Removing the propInstance...")
+			warn("Received a `propInstance` as a Model with no PrimaryPart - Instance removed.")
 
 			PropManager:_RemoveProp(prop)
 			if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
@@ -123,8 +123,8 @@ function PropManager:_AddProp(
 	targetInstance: TargetInstance,
 	settings: PropSettings
 )
-	local propInstance = propTemplate:Clone()
 	assert(self.ActiveProps[groupId], `Unable to find an Active Prop Group under: {groupId}`)
+	local propInstance = propTemplate:Clone()
 
 	if settings.OnSpawn and typeof(settings.OnSpawn) == "function" then
 		local success, errMessage = pcall(function()
@@ -134,12 +134,12 @@ function PropManager:_AddProp(
 		if not success then
 			self:_RemoveProp(propInstance)
 
-			error(`OnSpawn error: {errMessage}`)
+			error(`'OnSpawn' errored with: \n{errMessage}`)
 		end
 
 		-- In-case the prop instance has been removed via OnSpawn
 		if not propInstance or not propInstance:IsDescendantOf(game) then
-			error("OnSpawn error: propInstance prematurely destroyed")
+			error("'OnSpawn' errored with: \npropInstance Prematurely Destroyed")
 		end
 	end
 
@@ -155,8 +155,18 @@ function PropManager:_AddProp(
 			ancestryChangedConnection:Disconnect()
 		end
 
-		self.ActiveProps[groupId][propInstance] = nil
-		if next(self.ActiveProps[groupId]) == nil and settings.OnAllRemoved then
+		if not self.ActiveProps[groupId] then
+			return
+		end
+
+		if self.ActiveProps[groupId][propInstance] then
+			self.ActiveProps[groupId][propInstance] = nil
+		end
+
+		if
+			next(self.ActiveProps[groupId]) == nil
+			and (settings.OnAllRemoved and typeof(settings.OnAllRemoved) == "function")
+		then
 			settings.OnAllRemoved()
 		end
 	end)
@@ -218,25 +228,25 @@ function PropManager:Start(
 	do
 		assert(
 			typeof(amount) == "number" and amount % 1 == 0,
-			"amount must be an integer number greater than or equal to 1"
+			"`amount` must be an integer number greater than or equal to 1"
 		)
 		assert(
 			typeof(propTemplate) == "Instance"
 				and ((propTemplate:IsA("Model") and propTemplate.PrimaryPart) or propTemplate:IsA("BasePart")),
-			"propTemplate must be a Model with a PrimaryPart or a BasePart"
+			"`propTemplate` must be a Model with a PrimaryPart or a BasePart"
 		)
 
 		assert(
 			typeof(targetInstance) == "Instance" and (targetInstance:IsA("Model") or targetInstance:IsA("BasePart")),
-			"targetInstance must be a Model or BasePart"
+			"`targetInstance` must be a Model or BasePart"
 		)
-		assert(typeof(settings) == "table", "settings must be a table")
-		assert(typeof(originCFrame) == "CFrame", "OriginCFrame must be a CFrame")
+		assert(typeof(settings) == "table", "`settings` must be a table")
+		assert(typeof(originCFrame) == "CFrame", "`OriginCFrame` must be a CFrame")
 
 		---
 		assert(
 			not settings.CollisionGroup or typeof(settings.CollisionGroup) == "string",
-			"CollisionGroup must be a string"
+			"`CollisionGroup` must be a string"
 		)
 		assert(
 			not settings.RemoveMagnitude
@@ -245,11 +255,11 @@ function PropManager:Start(
 		)
 		assert(
 			not settings.AttractDelay or (typeof(settings.AttractDelay) == "number" and settings.AttractDelay > 0),
-			"AttractDelay must be a positive number"
+			"`AttractDelay` must be a positive number"
 		)
 		assert(
 			not settings.AutoRemoveTime or (typeof(settings.AutoRemoveTime) == "number" and settings.AutoRemoveTime > 0),
-			"AutoRemoveTime must be a positive number"
+			"`AutoRemoveTime` must be a positive number"
 		)
 		assert(
 			not settings.AttractMagnitude
@@ -257,13 +267,13 @@ function PropManager:Start(
 					(typeof(settings.AttractMagnitude) == "number" and settings.AttractMagnitude > 0)
 					and (typeof(settings.AttractSpeed) == "number" and settings.AttractSpeed > 0)
 				),
-			"AttractMagnitude and AttractSpeed must be positive numbers if is specified."
+			"`AttractMagnitude` and AttractSpeed must be positive numbers if is specified."
 		)
-		assert(typeof(settings.OnSpawn) == "function", "OnSpawn must be a function")
-		assert(not settings.OnRemoved or typeof(settings.OnRemoved) == "function", "OnRemoved must be a function")
+		assert(typeof(settings.OnSpawn) == "function", "`OnSpawn` must be a function")
+		assert(not settings.OnRemoved or typeof(settings.OnRemoved) == "function", "`OnRemoved` must be a function")
 		assert(
 			not settings.OnAllRemoved or typeof(settings.OnAllRemoved) == "function",
-			"OnAllRemoved must be a function"
+			"`OnAllRemoved` must be a function"
 		)
 	end
 
@@ -278,10 +288,21 @@ function PropManager:Start(
 
 	if not success then
 		if self.ActiveProps[groupId] then
-			self.ActiveProps[groupId] = nil
+			--? Clear the created props. This section could be commented out to allow for props to exist if either errored on creation.
+			if next(self.ActiveProps[groupId]) ~= nil then
+				for prop, _propData in pairs(self.ActiveProps[groupId]) do
+					self:_RemoveProp(prop)
+				end
+			end
+
+			--? Deferral enables ancestryChanged connections to process. This in turn allows `OnAllRemoved` to run regardless of whether the function errored.
+			--? Remove the deferral, to prevent `OnAllRemoved` to be called
+			task.defer(function()
+				self.ActiveProps[groupId] = nil
+			end)
 		end
 
-		error(errMessage)
+		error(`\n{errMessage}`, 3)
 	end
 end
 

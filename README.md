@@ -124,6 +124,12 @@ PropDispenser:Start(
 )
 ```
 ---
+### Additional Resources:
+
+- **[Edge Cases Documentation](EDGE_CASES.md):** Comprehensive guide to edge cases that have been addressed and best practices for users.
+- **[Suggested Improvements](IMPROVEMENTS.md):** Future enhancement ideas for the system, including performance optimizations and additional features.
+
+---
 ### Non-goals:
 - **Cross-client Compatibility:** The system is not designed to function across multiple clients simultaneously. It focuses on single-client interactions and is not optimized for distributing prop across a networked environment.
 - **Massive-Scale Prop Management:** The design is optimized for small to moderate numbers of props. Handling thousands of active props simultaneously is not within the intended use case due to performance constraints.

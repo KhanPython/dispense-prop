@@ -77,7 +77,7 @@ local settings = {
     AutoRemoveTime = 30,
     CollisionGroup = "CustomGroup",
 
-    --! Imporant: Avoid yielding any of the callbacks. `OnSpawn` could be an exception, though it may lead to unexpected results.
+    --! Important: Avoid yielding any of the callbacks. `OnSpawn` could be an exception, though it may lead to unexpected results.
     OnSpawn = function(prop)
         print("Spawned prop:", prop)
 
@@ -123,6 +123,12 @@ PropDispenser:Start(
     settings                -- Settings table
 )
 ```
+---
+### Additional Resources:
+
+- **[Edge Cases Documentation](EDGE_CASES.md):** Comprehensive guide to edge cases that have been addressed and best practices for users.
+- **[Suggested Improvements](IMPROVEMENTS.md):** Future enhancement ideas for the system, including performance optimizations and additional features.
+
 ---
 ### Non-goals:
 - **Cross-client Compatibility:** The system is not designed to function across multiple clients simultaneously. It focuses on single-client interactions and is not optimized for distributing prop across a networked environment.

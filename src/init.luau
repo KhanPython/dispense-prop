@@ -33,7 +33,7 @@ local PropManager = {}
 PropManager.ActiveProps = {}
 
 PropManager.Defaults = {
-	ClearMagnitude = 5,
+	RemoveMagnitude = 5,
 	AttractSpeed = 10,
 	AttractDelay = 1,
 	CollisionGroup = "Default",
@@ -44,6 +44,16 @@ local function updateProp(propData: PropData, dT: number)
 	local target = propData.Target
 	local settings = propData.Settings
 	local elapsedTime = os.clock() - propData.SpawnTime
+
+	-- Check if target instance still exists
+	if not target or not target:IsDescendantOf(game) then
+		PropManager:_RemoveProp(prop)
+		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
+			settings.OnRemoved(true)
+		end
+
+		return
+	end
 
 	-- If `AutoDestroyTime` was given and elapsed time exceeded, remove the prop
 	if propData.Settings.AutoRemoveTime and elapsedTime >= propData.Settings.AutoRemoveTime then
@@ -62,10 +72,11 @@ local function updateProp(propData: PropData, dT: number)
 
 	local targetPosition = target:GetPivot().Position
 	local propPosition = prop:GetPivot().Position
-	local distance = (targetPosition - propPosition).Magnitude
+	local distanceVector = targetPosition - propPosition
+	local distance = distanceVector.Magnitude
 
 	-- Clear the prop if it's within the clear distance
-	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude) then
+	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.RemoveMagnitude) then
 		PropManager:_RemoveProp(prop)
 		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
 			settings.OnRemoved()
@@ -102,10 +113,13 @@ local function updateProp(propData: PropData, dT: number)
 			})
 		end
 
-		local direction = (targetPosition - propPosition).Unit
-		local moveDistance = math.min((settings.AttractSpeed or PropManager.Defaults.AttractSpeed) * dT, distance)
-		local newPosition = propPosition + direction * moveDistance
-		prop:PivotTo(CFrame.new(newPosition, targetPosition))
+		-- Safety check: ensure distance is not too small to prevent division issues
+		if distance > 0.001 then
+			local direction = distanceVector.Unit
+			local moveDistance = math.min((settings.AttractSpeed or PropManager.Defaults.AttractSpeed) * dT, distance)
+			local newPosition = propPosition + direction * moveDistance
+			prop:PivotTo(CFrame.new(newPosition, targetPosition))
+		end
 	else
 		if rootPart.Anchored or not rootPart.CanCollide then
 			PropertyUtil.SetProperty(prop, {
@@ -227,7 +241,7 @@ function PropManager:Start(
 )
 	do
 		assert(
-			typeof(amount) == "number" and amount % 1 == 0,
+			typeof(amount) == "number" and amount % 1 == 0 and amount >= 1,
 			"`amount` must be an integer number greater than or equal to 1"
 		)
 		assert(
@@ -240,6 +254,7 @@ function PropManager:Start(
 			typeof(targetInstance) == "Instance" and (targetInstance:IsA("Model") or targetInstance:IsA("BasePart")),
 			"`targetInstance` must be a Model or BasePart"
 		)
+		assert(targetInstance:IsDescendantOf(game), "`targetInstance` must be a descendant of game")
 		assert(typeof(settings) == "table", "`settings` must be a table")
 		assert(typeof(originCFrame) == "CFrame", "`OriginCFrame` must be a CFrame")
 

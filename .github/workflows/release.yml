@@ -37,7 +37,7 @@ jobs:
             - name: Publish to Wally
               run: |
                   mkdir -p ~/.wally
-                  echo "${{ secrets.WALLY_AUTH }}" > ~/.wally/auth.toml
+                  printf '[tokens]\n"https://api.wally.run/" = "%s"\n' "${{ secrets.WALLY_AUTH }}" > ~/.wally/auth.toml
                   wally publish
 
             - name: Create GitHub Release

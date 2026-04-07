@@ -2,15 +2,6 @@ name: Release
 
 on:
     workflow_dispatch:
-        inputs:
-            version:
-                description: "Version to release (e.g. 1.0.0)"
-                required: true
-                type: string
-            changes:
-                description: "Release notes / changelog"
-                required: true
-                type: string
 
 jobs:
     release:
@@ -27,8 +18,18 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Update version in wally.toml
-              run: sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' wally.toml
+            - name: Read version from wally.toml
+              id: version
+              run: echo "version=$(grep '^version' wally.toml | sed 's/version = "\(.*\)"/\1/')" >> "$GITHUB_OUTPUT"
+
+            - name: Read changelog
+              id: changelog
+              run: |
+                  # Extract everything between the first ## heading and the next ## heading (or EOF)
+                  NOTES=$(awk '/^## /{if(found) exit; found=1; next} found{print}' CHANGELOG.md)
+                  echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+                  echo "$NOTES" >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
 
             - name: Build .rbxm
               run: rojo build default.project.json -o dispense-prop.rbxm
@@ -39,18 +40,10 @@ jobs:
                   printf '[github]\ntoken = "%s"\n' "${{ secrets.WALLY_AUTH }}" > ~/.wally/auth.toml
                   wally publish
 
-            - name: Commit version bump
-              run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git add wally.toml
-                  git commit -m "release: v${{ inputs.version }}" || true
-                  git push
-
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v2
               with:
-                  tag_name: v${{ inputs.version }}
-                  name: v${{ inputs.version }}
-                  body: ${{ inputs.changes }}
+                  tag_name: v${{ steps.version.outputs.version }}
+                  name: v${{ steps.version.outputs.version }}
+                  body: ${{ steps.changelog.outputs.notes }}
                   files: dispense-prop.rbxm

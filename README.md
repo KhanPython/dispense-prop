@@ -11,9 +11,11 @@
 
 - **Customizable Prop Spawning:** Spawn a specified number of props from a given origin with configurable settings.
 - **Automatic Prop Removal:** Optionally remove props automatically after a configurable duration.
-- **Attraction Mechanism:**  Move props toward a target object within a defined attraction distance, with optional physics-based motion.
-- **Physics-Based Dispensing:** Simulate natural, physics-driven prop dispensing. The latter attraction works by per-frame positional changes using PivotTo.
-- **Event Callbacks:** Attach custom logic to prop spawn, removal, and group completion events for added flexibility.
+- **Sigmoid Attraction:** Props are attracted towards a target using a smooth sigmoid easing curve over a configurable duration.
+- **Dynamic Timing:** `AttractDelay` and `AttractDuration` accept a fixed number, a `Vector2` range for per-prop randomization, or a custom function.
+- **Batch Movement:** All attracted props are moved in a single `workspace:BulkMoveTo` call each frame for minimal overhead.
+- **SoA Data Layout:** Internal state uses flat, cache-friendly Structure of Arrays instead of nested dictionaries.
+- **Event Callbacks:** Attach custom logic to prop spawn, removal, and group completion events.
 
 ---
 
@@ -22,7 +24,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   dispense-prop = "khanpython/dispense-prop@4.3.0"
+   dispense-prop = "khanpython/dispense-prop@5.0.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -41,7 +43,7 @@
 
 | Parameter        | Type            | Description                                                                 |
 |------------------|-----------------|-----------------------------------------------------------------------------|
-| `amount`         | `number`        | The number of props to spawn. Must be an integer.                          |
+| `amount`         | `number`        | The number of props to spawn. Must be an integer >= 1.                     |
 | `originCFrame`   | `CFrame`        | The starting position for the props.                                       |
 | `propTemplate`   | `Model or BasePart`| A template instance to clone for each prop.                                |
 | `targetInstance` | `Model or BasePart`| The target instance towards which props may be attracted.                  |
@@ -49,17 +51,42 @@
 
 #### `settings` Table
 
+`DynamicNumber` = `number | Vector2 | (propIndex: number) -> number`
+
 | Key               | Type             | Default      | Description                                                                 |
 |--------------------|------------------|--------------|-----------------------------------------------------------------------------|
-| `RemoveMagnitude` | `number?`        | `5`          | The distance within which a prop is automatically removed.                  |
-| `AttractSpeed`    | `number?`        | `10`         | The speed at which props move towards the target.                           |
-| `AttractMagnitude`| `number?`        | `nil`        | The range within which props start moving towards the target.               |
-| `AttractDelay`      | `number?`        | `1`          | Time delay before props become 'live' after spawning. Live implying that the prop can be attracted and claimed by the target Instance.                      |
+| `RemoveMagnitude` | `number?`        | `1`          | The distance within which a prop is removed (claimed).                      |
+| `AttractMagnitude`| `number?`        | `nil`        | The range within which props begin attraction. `nil` means attract from any distance. |
+| `AttractDuration` | `DynamicNumber?` | `1.5`        | How long (seconds) the sigmoid attraction takes to complete.                |
+| `AttractDelay`    | `DynamicNumber?` | `3`          | Time delay before a prop becomes live and can be attracted/claimed.         |
 | `AutoRemoveTime`  | `number?`        | `nil`        | Time in seconds before props are automatically removed.                     |
-| `CollisionGroup`  | `string?`        | `Default`    | The collision group assigned to props.                                      |
-| `OnSpawn`         | `function`       | `nil`        | A function executed when a prop is spawned.                                 |
-| `OnRemoved`       | `function?`      | `nil`        | A function executed when a prop is removed.                                 |
+| `CollisionGroup`  | `string?`        | `Props`      | The collision group assigned to props.                                      |
+| `OnSpawn`         | `function`       | required     | A function executed when a prop is spawned.                                 |
+| `OnRemoved`       | `function?`      | `nil`        | A function executed when a prop is removed. Receives `true` if forced (auto-remove/external destroy). |
 | `OnAllRemoved`    | `function?`      | `nil`        | A function executed when all props in a group are removed.                  |
+
+#### DynamicNumber
+
+`AttractDelay` and `AttractDuration` accept a `DynamicNumber`, which resolves per-prop at spawn time. This lets you stagger or randomize timing across a group.
+
+| Form | Behavior | Example |
+|------|----------|---------|
+| `number` | Same value for every prop | `AttractDelay = 2` |
+| `Vector2` | Random value in `[min, max]` (order doesn't matter) | `AttractDuration = Vector2.new(1, 3)` |
+| `function` | Called with the prop's 1-based index in the group | `AttractDelay = function(i) return i * 0.15 end` |
+
+```lua
+-- Fixed: all props attract after 2 seconds
+AttractDelay = 2
+
+-- Random: each prop gets a random delay between 1 and 4 seconds
+AttractDelay = Vector2.new(1, 4)
+
+-- Staggered: prop 1 waits 0.15s, prop 2 waits 0.3s, etc.
+AttractDelay = function(propIndex)
+    return propIndex * 0.15
+end
+```
 
 ---
 
@@ -68,16 +95,15 @@
 ```lua
 local PropDispenser = require(path-to-package)
 
--- Define settings for the props
 local settings = {
-    RemoveMagnitude = 5,
-    AttractSpeed = 15,
+    RemoveMagnitude = 2,
     AttractMagnitude = 20,
+    AttractDuration = Vector2.new(1, 2), -- random 1-2s per prop
     AttractDelay = 3,
     AutoRemoveTime = 30,
-    CollisionGroup = "CustomGroup",
+    CollisionGroup = "Props",
 
-    --! Imporant: Avoid yielding any of the callbacks. `OnSpawn` could be an exception, though it may lead to unexpected results.
+    --! Important: Avoid yielding any of the callbacks. `OnSpawn` could be an exception, though it may lead to unexpected results.
     OnSpawn = function(prop)
         print("Spawned prop:", prop)
 
@@ -95,36 +121,31 @@ local settings = {
             )
         end)
     end,
-    OnRemoved = function(byAutoRemove)
+    OnRemoved = function(wasForced)
         print("Prop removed.")
 
         --[[
-            * This hook is triggered whenever a single prop is removed. 
-            * The `byAutoRemove` parameter indicates whether the removal was due to the automatic removal timer (`true`), or because the prop was cleared/claimed by the target (`false`).
-            * For example, you could use this to send a message to the server to reward the player and update a pool of claimable rewards.
+            * Triggered whenever a single prop is removed.
+            * `wasForced` is `true` if the removal was due to auto-remove, external destruction,
+              or the target leaving. It is `nil`/falsy when the prop was claimed normally.
         ]]
     end,
     OnAllRemoved = function()
         print("All props removed.")
 
         --[[
-            * This hook is triggered when all props in the current group have been removed, regardless of whether the removals occurred due to automatic removal or clearing/claiming by the target.
-            * Use this to execute any logic that depends on the entire group being cleared, such as finalizing a reward process
+            * Triggered when every prop in the group has been removed,
+              regardless of how each individual removal occurred.
         ]]
     end,
 }
 
--- Start spawning props
 PropDispenser:Start(
-    10,                 -- Number of props
+    10, -- Number of props
     CFrame.new(0, 10, 0), -- Origin position
     workspace.PropTemplate, -- Template prop instance
-    workspace.Target,       -- Target instance
-    settings                -- Settings table
+    workspace.Target, -- Target instance
+    settings -- Settings table
 )
 ```
 ---
-### Non-goals:
-- **Cross-client Compatibility:** The system is not designed to function across multiple clients simultaneously. It focuses on single-client interactions and is not optimized for distributing prop across a networked environment.
-- **Massive-Scale Prop Management:** The design is optimized for small to moderate numbers of props. Handling thousands of active props simultaneously is not within the intended use case due to performance constraints.
-- **Dynamic Configuration Changes:** Settings like `AttractMagnitude`, `RemoveMagnitude`, and `CollisionGroup` are static once the system starts. Dynamically updating these configurations at runtime is not recommended.

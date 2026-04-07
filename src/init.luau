@@ -6,209 +6,242 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local PropertyUtil = require(script.Util.Property)
+local PropUtil = require(script.Util.Prop)
+local sigmoidEase = require(script.Util.sigmoidEase)
+local resolveDynamic = require(script.Util.resolveDynamic)
 
 export type PropInstance = Model | BasePart
 export type TargetInstance = Model | BasePart
+export type DynamicNumber = number | Vector2 | (number) -> number
 export type PropSettings = {
 	RemoveMagnitude: number?,
-	AttractSpeed: number?,
 	AttractMagnitude: number?,
-	AttractDelay: number?,
+	AttractDuration: DynamicNumber?,
+	AttractDelay: DynamicNumber?,
 	AutoRemoveTime: number?,
 	CollisionGroup: string?,
 	OnSpawn: (PropInstance) -> (),
 	OnRemoved: ((boolean?) -> ())?,
 	OnAllRemoved: (() -> ())?,
 }
-export type PropData = {
-	Instance: PropInstance,
-	Target: TargetInstance,
-	SpawnTime: number,
-	Settings: PropSettings,
-	AncestryChanged: RBXScriptConnection,
-}
 
 local PropManager = {}
 
-PropManager.ActiveProps = {}
-
 PropManager.Defaults = {
-	ClearMagnitude = 5,
-	AttractSpeed = 10,
-	AttractDelay = 1,
-	CollisionGroup = "Default",
+	ClearMagnitude = 1,
+	AttractDuration = 1.5,
+	AttractDelay = 3,
+	CollisionGroup = "Props",
 }
 
-local function updateProp(propData: PropData, dT: number)
-	local prop = propData.Instance
-	local target = propData.Target
-	local settings = propData.Settings
-	local elapsedTime = os.clock() - propData.SpawnTime
+-- SoA (Structure of Arrays) flat, cache-friendly
+local propCount = 0
+local propInstances: { PropInstance } = {}
+local moveParts: { BasePart } = {}
+local targetInstances: { TargetInstance } = {}
+local allSettings: { PropSettings } = {}
+local spawnTimes: { number } = {}
+local isAttracted: { boolean } = {}
+local attractStartTimes: { number } = {}
+local attractOrigins: { Vector3 } = {}
+local groupIds: { string } = {}
+local resolvedAttractDelays: { number } = {}
+local resolvedAttractDurations: { number } = {}
 
-	-- If `AutoDestroyTime` was given and elapsed time exceeded, remove the prop
-	if propData.Settings.AutoRemoveTime and elapsedTime >= propData.Settings.AutoRemoveTime then
-		PropManager:_RemoveProp(prop)
-		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
-			settings.OnRemoved(true)
-		end
+-- Group tracking for OnAllRemoved
+local groupCounts: { [string]: number } = {}
+local groupOnAllRemoved: { [string]: (() -> ())? } = {}
 
+-- Per-frame reusable buffers
+local bulkParts: { BasePart } = {}
+local bulkCFrames: { CFrame } = {}
+local removeQueue: { number } = {}
+local removeWasForced: { boolean? } = {}
+
+local function swapRemoveAtIndex(i: number)
+	local last = propCount
+
+	if i ~= last then
+		propInstances[i] = propInstances[last]
+		moveParts[i] = moveParts[last]
+		targetInstances[i] = targetInstances[last]
+		allSettings[i] = allSettings[last]
+		spawnTimes[i] = spawnTimes[last]
+		isAttracted[i] = isAttracted[last]
+		attractStartTimes[i] = attractStartTimes[last]
+		attractOrigins[i] = attractOrigins[last]
+		groupIds[i] = groupIds[last]
+		resolvedAttractDelays[i] = resolvedAttractDelays[last]
+		resolvedAttractDurations[i] = resolvedAttractDurations[last]
+	end
+
+	propInstances[last] = nil :: any
+	moveParts[last] = nil :: any
+	targetInstances[last] = nil :: any
+	allSettings[last] = nil :: any
+	spawnTimes[last] = nil :: any
+	isAttracted[last] = nil :: any
+	attractStartTimes[last] = nil :: any
+	attractOrigins[last] = nil :: any
+	groupIds[last] = nil :: any
+	resolvedAttractDelays[last] = nil :: any
+	resolvedAttractDurations[last] = nil :: any
+
+	propCount -= 1
+end
+
+local function decrementGroup(groupId: string)
+	local count = groupCounts[groupId]
+	if not count then
 		return
 	end
 
-	-- Wait for the claim delay before processing logic
-	if elapsedTime < (settings.AttractDelay or PropManager.Defaults.AttractDelay) then
-		return
-	end
+	local remaining = count - 1
 
-	local targetPosition = target:GetPivot().Position
-	local propPosition = prop:GetPivot().Position
-	local distance = (targetPosition - propPosition).Magnitude
+	if remaining <= 0 then
+		groupCounts[groupId] = nil
 
-	-- Clear the prop if it's within the clear distance
-	if distance <= (settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude) then
-		PropManager:_RemoveProp(prop)
-		if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
-			settings.OnRemoved()
+		local cb = groupOnAllRemoved[groupId]
+		groupOnAllRemoved[groupId] = nil
+		if cb then
+			pcall(cb)
 		end
-
-		return
-	end
-
-	--? Not a literal root part
-	local rootPart
-	if prop:IsA("Model") then
-		if not prop.PrimaryPart then
-			warn("Received a `propInstance` as a Model with no PrimaryPart - Instance removed.")
-
-			PropManager:_RemoveProp(prop)
-			if settings.OnRemoved and typeof(settings.OnRemoved) == "function" then
-				settings.OnRemoved(true)
-			end
-
-			return
-		end
-
-		rootPart = prop.PrimaryPart
 	else
-		rootPart = prop
-	end
-
-	-- Start attraction if within the attract magnitude
-	if settings.AttractMagnitude and distance <= settings.AttractMagnitude then
-		if not rootPart.Anchored or rootPart.CanCollide then
-			PropertyUtil.SetProperty(prop, {
-				Anchored = true,
-				CanCollide = false,
-			})
-		end
-
-		local direction = (targetPosition - propPosition).Unit
-		local moveDistance = math.min((settings.AttractSpeed or PropManager.Defaults.AttractSpeed) * dT, distance)
-		local newPosition = propPosition + direction * moveDistance
-		prop:PivotTo(CFrame.new(newPosition, targetPosition))
-	else
-		if rootPart.Anchored or not rootPart.CanCollide then
-			PropertyUtil.SetProperty(prop, {
-				Anchored = false,
-				CanCollide = true,
-			})
-		end
+		groupCounts[groupId] = remaining
 	end
 end
 
-function PropManager:_AddProp(
-	groupId: string,
-	originCFrame: CFrame,
-	propTemplate: PropInstance,
-	targetInstance: TargetInstance,
-	settings: PropSettings
-)
-	assert(self.ActiveProps[groupId], `Unable to find an Active Prop Group under: {groupId}`)
-	local propInstance = propTemplate:Clone()
-
-	if settings.OnSpawn and typeof(settings.OnSpawn) == "function" then
-		local success, errMessage = pcall(function()
-			settings.OnSpawn(propInstance)
-		end)
-
-		if not success then
-			self:_RemoveProp(propInstance)
-
-			error(`'OnSpawn' errored with: \n{errMessage}`)
-		end
-
-		-- In-case the prop instance has been removed via OnSpawn
-		if not propInstance or not propInstance:IsDescendantOf(game) then
-			error("'OnSpawn' errored with: \npropInstance Prematurely Destroyed")
-		end
-	end
-
-	local ancestryChangedConnection
-
-	-- Clean-up logic
-	ancestryChangedConnection = propInstance.AncestryChanged:Connect(function()
-		if propInstance:IsDescendantOf(game) then
-			return
-		end
-
-		if ancestryChangedConnection and typeof(ancestryChangedConnection) == "RBXScriptConnection" then
-			ancestryChangedConnection:Disconnect()
-		end
-
-		if not self.ActiveProps[groupId] then
-			return
-		end
-
-		if self.ActiveProps[groupId][propInstance] then
-			self.ActiveProps[groupId][propInstance] = nil
-		end
-
-		if
-			next(self.ActiveProps[groupId]) == nil
-			and (settings.OnAllRemoved and typeof(settings.OnAllRemoved) == "function")
-		then
-			settings.OnAllRemoved()
-		end
-	end)
-
-	self.ActiveProps[groupId][propInstance] = {
-		Instance = propInstance,
-		Settings = settings,
-		Target = targetInstance,
-		SpawnTime = os.clock(),
-		AncestryChanged = ancestryChangedConnection,
-	} :: PropData
-
-	propInstance:PivotTo(originCFrame)
-
-	PropertyUtil.SetProperty(propInstance, {
-		CanTouch = false,
-		CanQuery = false,
-		CanCollide = true,
-		Anchored = false,
-		CollisionGroup = settings.CollisionGroup or PropManager.Defaults.CollisionGroup,
-	})
-end
-
-function PropManager:_RemoveProp(propInstance: PropInstance)
-	if not propInstance or typeof(propInstance) ~= "Instance" then
-		return
-	end
-
-	if not propInstance:IsDescendantOf(game) then
-		return
-	end
-
-	propInstance:Destroy()
-end
-
-function PropManager:_Update(dT: number)
+-- Frame update three-phase pipeline
+function PropManager:_Update(_dT: number)
 	debug.profilebegin("PropDispenser")
 
-	for groupId, groupData in pairs(self.ActiveProps) do
-		for propInstance, propData in pairs(groupData) do
-			updateProp(propData, dT)
+	local now = os.clock()
+	local bulkN = 0
+	local removeN = 0
+
+	-- Phase 1: evaluate every prop, queue moves and removals
+	for i = 1, propCount do
+		local prop = propInstances[i]
+		local target = targetInstances[i]
+		local settings = allSettings[i]
+		local part = moveParts[i]
+
+		-- Prop or its move-part destroyed externally
+		if not prop:IsDescendantOf(game) or not part:IsDescendantOf(game) then
+			removeN += 1
+			removeQueue[removeN] = i
+			removeWasForced[removeN] = true
+			continue
 		end
+
+		-- Target gone (character respawn, player left)
+		if not target:IsDescendantOf(game) then
+			removeN += 1
+			removeQueue[removeN] = i
+			removeWasForced[removeN] = true
+			continue
+		end
+
+		local elapsed = now - spawnTimes[i]
+
+		-- Auto-remove timer exceeded
+		if settings.AutoRemoveTime and elapsed >= settings.AutoRemoveTime then
+			removeN += 1
+			removeQueue[removeN] = i
+			removeWasForced[removeN] = true
+			continue
+		end
+
+		local targetPos = target:GetPivot().Position
+		local clearMag = settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude
+
+		-- Sigmoid attraction in progress
+		if isAttracted[i] then
+			local attractElapsed = now - attractStartTimes[i]
+			local duration = resolvedAttractDurations[i]
+			local alpha = sigmoidEase(attractElapsed / duration)
+
+			local newPos = attractOrigins[i]:Lerp(targetPos, alpha)
+			local dist = (targetPos - newPos).Magnitude
+
+			if dist <= clearMag or alpha >= 1 then
+				removeN += 1
+				removeQueue[removeN] = i
+				removeWasForced[removeN] = nil
+			else
+				bulkN += 1
+				bulkParts[bulkN] = part
+				bulkCFrames[bulkN] = CFrame.new(newPos)
+			end
+
+			continue
+		end
+
+		-- Still in attract-delay window
+		if elapsed < resolvedAttractDelays[i] then
+			continue
+		end
+
+		local propPos = part.Position
+		local dist = (targetPos - propPos).Magnitude
+
+		-- Already at target
+		if dist <= clearMag then
+			removeN += 1
+			removeQueue[removeN] = i
+			removeWasForced[removeN] = nil
+			continue
+		end
+
+		-- Begin attraction (nil magnitude = attract from any distance)
+		if not settings.AttractMagnitude or dist <= settings.AttractMagnitude then
+			part.Anchored = true
+			part.CanCollide = false
+
+			isAttracted[i] = true
+			attractStartTimes[i] = now
+			attractOrigins[i] = propPos
+		end
+	end
+
+	-- Phase 2: batch-move all attracted props in one engine call
+	if bulkN > 0 then
+		for j = bulkN + 1, #bulkParts do
+			bulkParts[j] = nil :: any
+			bulkCFrames[j] = nil :: any
+		end
+
+		workspace:BulkMoveTo(bulkParts, bulkCFrames, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+
+	-- Phase 3: remove props in descending index order (safe swap-remove)
+	for j = removeN, 1, -1 do
+		local idx = removeQueue[j]
+
+		-- Guard: earlier swap-removes may have shifted count below this index
+		if idx > propCount then
+			continue
+		end
+
+		local prop = propInstances[idx]
+		local settings = allSettings[idx]
+		local groupId = groupIds[idx]
+		local wasForced = removeWasForced[j]
+
+		swapRemoveAtIndex(idx)
+		PropUtil.Destroy(prop)
+
+		if settings.OnRemoved then
+			pcall(settings.OnRemoved, wasForced)
+		end
+
+		decrementGroup(groupId)
+	end
+
+	-- Clear reusable buffers
+	for j = 1, removeN do
+		removeQueue[j] = nil :: any
+		removeWasForced[j] = nil
 	end
 
 	debug.profileend()
@@ -218,6 +251,7 @@ RunService.Heartbeat:Connect(function(dT: number)
 	PropManager:_Update(dT)
 end)
 
+-- Public API
 function PropManager:Start(
 	amount: number,
 	originCFrame: CFrame,
@@ -226,24 +260,18 @@ function PropManager:Start(
 	settings: PropSettings
 )
 	do
-		assert(
-			typeof(amount) == "number" and amount % 1 == 0,
-			"`amount` must be an integer number greater than or equal to 1"
-		)
+		assert(typeof(amount) == "number" and amount % 1 == 0 and amount >= 1, "`amount` must be an integer >= 1")
 		assert(
 			typeof(propTemplate) == "Instance"
 				and ((propTemplate:IsA("Model") and propTemplate.PrimaryPart) or propTemplate:IsA("BasePart")),
 			"`propTemplate` must be a Model with a PrimaryPart or a BasePart"
 		)
-
 		assert(
 			typeof(targetInstance) == "Instance" and (targetInstance:IsA("Model") or targetInstance:IsA("BasePart")),
 			"`targetInstance` must be a Model or BasePart"
 		)
 		assert(typeof(settings) == "table", "`settings` must be a table")
-		assert(typeof(originCFrame) == "CFrame", "`OriginCFrame` must be a CFrame")
-
-		---
+		assert(typeof(originCFrame) == "CFrame", "`originCFrame` must be a CFrame")
 		assert(
 			not settings.CollisionGroup or typeof(settings.CollisionGroup) == "string",
 			"`CollisionGroup` must be a string"
@@ -251,11 +279,14 @@ function PropManager:Start(
 		assert(
 			not settings.RemoveMagnitude
 				or (typeof(settings.RemoveMagnitude) == "number" and settings.RemoveMagnitude > 0),
-			"RemoveMagnitude must be a positive number"
+			"`RemoveMagnitude` must be a positive number"
 		)
 		assert(
-			not settings.AttractDelay or (typeof(settings.AttractDelay) == "number" and settings.AttractDelay > 0),
-			"`AttractDelay` must be a positive number"
+			not settings.AttractDelay
+				or typeof(settings.AttractDelay) == "number"
+				or typeof(settings.AttractDelay) == "Vector2"
+				or typeof(settings.AttractDelay) == "function",
+			"`AttractDelay` must be a number, Vector2 range, or function"
 		)
 		assert(
 			not settings.AutoRemoveTime or (typeof(settings.AutoRemoveTime) == "number" and settings.AutoRemoveTime > 0),
@@ -263,11 +294,15 @@ function PropManager:Start(
 		)
 		assert(
 			not settings.AttractMagnitude
-				or (
-					(typeof(settings.AttractMagnitude) == "number" and settings.AttractMagnitude > 0)
-					and (typeof(settings.AttractSpeed) == "number" and settings.AttractSpeed > 0)
-				),
-			"`AttractMagnitude` and AttractSpeed must be positive numbers if is specified."
+				or (typeof(settings.AttractMagnitude) == "number" and settings.AttractMagnitude > 0),
+			"`AttractMagnitude` must be a positive number if specified."
+		)
+		assert(
+			not settings.AttractDuration
+				or typeof(settings.AttractDuration) == "number"
+				or typeof(settings.AttractDuration) == "Vector2"
+				or typeof(settings.AttractDuration) == "function",
+			"`AttractDuration` must be a number, Vector2 range, or function"
 		)
 		assert(typeof(settings.OnSpawn) == "function", "`OnSpawn` must be a function")
 		assert(not settings.OnRemoved or typeof(settings.OnRemoved) == "function", "`OnRemoved` must be a function")
@@ -278,28 +313,94 @@ function PropManager:Start(
 	end
 
 	local groupId = HttpService:GenerateGUID(false)
-	self.ActiveProps[groupId] = {}
+
+	settings = table.clone(settings)
+
+	groupCounts[groupId] = 0
+	if settings.OnAllRemoved then
+		groupOnAllRemoved[groupId] = settings.OnAllRemoved
+	end
 
 	local success, errMessage = pcall(function()
-		for i = 1, amount do
-			PropManager:_AddProp(groupId, originCFrame, propTemplate, targetInstance, settings)
+		for propIndex = 1, amount do
+			local propInstance = propTemplate:Clone()
+
+			local spawnOk, spawnErr = pcall(settings.OnSpawn :: (...any) -> ...any, propInstance)
+
+			if not spawnOk then
+				PropUtil.Destroy(propInstance)
+				error(`'OnSpawn' errored with: \n{spawnErr}`)
+			end
+
+			if not propInstance or not propInstance:IsDescendantOf(game) then
+				error("'OnSpawn' errored with: \npropInstance prematurely destroyed")
+			end
+
+			local primaryPart = PropUtil.GetPrimaryPart(propInstance)
+			if not primaryPart then
+				propInstance:Destroy()
+				error("Model prop missing PrimaryPart after OnSpawn")
+			end
+
+			propInstance:PivotTo(originCFrame)
+
+			PropertyUtil.SetProperty(propInstance, {
+				CanTouch = false,
+				CanQuery = false,
+				CanCollide = true,
+				Anchored = false,
+				CollisionGroup = settings.CollisionGroup or PropManager.Defaults.CollisionGroup,
+			})
+
+			-- Append to SoA
+			propCount += 1
+			propInstances[propCount] = propInstance
+			moveParts[propCount] = primaryPart
+			targetInstances[propCount] = targetInstance
+			allSettings[propCount] = settings
+			spawnTimes[propCount] = os.clock()
+			isAttracted[propCount] = false
+			attractStartTimes[propCount] = 0
+			attractOrigins[propCount] = Vector3.zero
+			groupIds[propCount] = groupId
+			resolvedAttractDelays[propCount] =
+				resolveDynamic(settings.AttractDelay, PropManager.Defaults.AttractDelay, propIndex)
+			resolvedAttractDurations[propCount] = math.max(
+				0.001,
+				resolveDynamic(settings.AttractDuration, PropManager.Defaults.AttractDuration, propIndex)
+			)
+
+			groupCounts[groupId] = (groupCounts[groupId] or 0) + 1
 		end
 	end)
 
 	if not success then
-		if self.ActiveProps[groupId] then
-			--? Clear the created props. This section could be commented out to allow for props to exist if either errored on creation.
-			if next(self.ActiveProps[groupId]) ~= nil then
-				for prop, _propData in pairs(self.ActiveProps[groupId]) do
-					self:_RemoveProp(prop)
+		-- Roll back: collect indices belonging to this group, remove in descending order
+		local rollback = {}
+		for i = 1, propCount do
+			if groupIds[i] == groupId then
+				table.insert(rollback, i)
+			end
+		end
+
+		for j = #rollback, 1, -1 do
+			local idx = rollback[j]
+			if idx <= propCount then
+				local prop = propInstances[idx]
+				swapRemoveAtIndex(idx)
+				PropUtil.Destroy(prop)
+
+				if settings.OnRemoved then
+					pcall(settings.OnRemoved, true)
 				end
 			end
+		end
 
-			--? Deferral enables ancestryChanged connections to process. This in turn allows `OnAllRemoved` to run regardless of whether the function errored.
-			--? Remove the deferral, to prevent `OnAllRemoved` to be called
-			task.defer(function()
-				self.ActiveProps[groupId] = nil
-			end)
+		groupCounts[groupId] = nil
+		local cb = groupOnAllRemoved[groupId]
+		groupOnAllRemoved[groupId] = nil
+		if cb then
+			task.defer(cb)
 		end
 
 		error(`\n{errMessage}`, 3)

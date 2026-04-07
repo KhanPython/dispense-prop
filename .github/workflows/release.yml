@@ -1,0 +1,56 @@
+name: Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to release (e.g. 1.0.0)"
+                required: true
+                type: string
+            changes:
+                description: "Release notes / changelog"
+                required: true
+                type: string
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install Aftman
+              uses: ok-nick/setup-aftman@v0.4.2
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Update version in wally.toml
+              run: sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' wally.toml
+
+            - name: Build .rbxm
+              run: rojo build default.project.json -o dispense-prop.rbxm
+
+            - name: Publish to Wally
+              run: |
+                  mkdir -p ~/.wally
+                  printf '[github]\ntoken = "%s"\n' "${{ secrets.WALLY_AUTH }}" > ~/.wally/auth.toml
+                  wally publish
+
+            - name: Commit version bump
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add wally.toml
+                  git commit -m "release: v${{ inputs.version }}" || true
+                  git push
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ inputs.version }}
+                  name: v${{ inputs.version }}
+                  body: ${{ inputs.changes }}
+                  files: dispense-prop.rbxm

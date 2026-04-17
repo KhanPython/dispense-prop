@@ -6,6 +6,6 @@ license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
 registry = "https://github.com/upliftgames/wally-index"
 realm = "shared"
-exclude = [".vscode"]
+exclude = [".vscode", "example", "example.project.json", ".github"]
 
 [dependencies]

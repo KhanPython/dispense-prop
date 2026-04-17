@@ -2,7 +2,8 @@
 --!native
 --!optimize 2
 
-type DynamicNumber = number | Vector2 | (number) -> number
+local Types = require(script.Parent.Parent.Types)
+type DynamicNumber = Types.DynamicNumber
 
 -- Resolves a DynamicNumber to a concrete number.
 -- number -> returned as-is, Vector2 -> random in [X, Y], function -> called with propIndex
@@ -23,6 +24,9 @@ local function resolveDynamic(value: DynamicNumber?, default: number, propIndex:
 		if typeof(result) == "number" then
 			return result
 		end
+		warn(
+			`[Dispense-Prop] DynamicNumber function returned {typeof(result)} (expected number); falling back to default {default}`
+		)
 		return default
 	end
 	return default

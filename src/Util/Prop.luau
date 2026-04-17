@@ -2,7 +2,8 @@
 --!native
 --!optimize 2
 
-type PropInstance = Model | BasePart
+local Types = require(script.Parent.Parent.Types)
+type PropInstance = Types.PropInstance
 
 local module = {}
 

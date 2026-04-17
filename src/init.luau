@@ -1,38 +1,27 @@
 --!strict
---!native
---!optimize 2
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
+local Types = require(script.Types)
 local PropertyUtil = require(script.Util.Property)
 local PropUtil = require(script.Util.Prop)
 local sigmoidEase = require(script.Util.sigmoidEase)
 local resolveDynamic = require(script.Util.resolveDynamic)
 
-export type PropInstance = Model | BasePart
-export type TargetInstance = Model | BasePart
-export type DynamicNumber = number | Vector2 | (number) -> number
-export type PropSettings = {
-	RemoveMagnitude: number?,
-	AttractMagnitude: number?,
-	AttractDuration: DynamicNumber?,
-	AttractDelay: DynamicNumber?,
-	AutoRemoveTime: number?,
-	CollisionGroup: string?,
-	OnSpawn: (PropInstance) -> (),
-	OnRemoved: ((boolean?) -> ())?,
-	OnAllRemoved: (() -> ())?,
-}
+type PropInstance = Types.PropInstance
+type TargetInstance = Types.TargetInstance
+type DynamicNumber = Types.DynamicNumber
+type PropSettings = Types.PropSettings
 
 local PropManager = {}
 
-PropManager.Defaults = {
-	ClearMagnitude = 1,
+PropManager.Defaults = table.freeze({
+	RemoveMagnitude = 1,
 	AttractDuration = 1.5,
 	AttractDelay = 3,
 	CollisionGroup = "Props",
-}
+})
 
 -- SoA (Structure of Arrays) flat, cache-friendly
 local propCount = 0
@@ -57,6 +46,10 @@ local bulkParts: { BasePart } = {}
 local bulkCFrames: { CFrame } = {}
 local removeQueue: { number } = {}
 local removeWasForced: { boolean? } = {}
+
+local function reportCallbackError(err: string)
+	warn(`[Dispense-Prop] user callback error:\n{debug.traceback(tostring(err), 2)}`)
+end
 
 local function swapRemoveAtIndex(i: number)
 	local last = propCount
@@ -104,7 +97,7 @@ local function decrementGroup(groupId: string)
 		local cb = groupOnAllRemoved[groupId]
 		groupOnAllRemoved[groupId] = nil
 		if cb then
-			pcall(cb)
+			xpcall(cb, reportCallbackError)
 		end
 	else
 		groupCounts[groupId] = remaining
@@ -112,7 +105,13 @@ local function decrementGroup(groupId: string)
 end
 
 -- Frame update three-phase pipeline
-function PropManager:_Update(_dT: number)
+local targetPivotCache: { [TargetInstance]: Vector3 } = {}
+
+local function update()
+	if propCount == 0 then
+		return
+	end
+
 	debug.profilebegin("PropDispenser")
 
 	local now = os.clock()
@@ -152,8 +151,12 @@ function PropManager:_Update(_dT: number)
 			continue
 		end
 
-		local targetPos = target:GetPivot().Position
-		local clearMag = settings.RemoveMagnitude or PropManager.Defaults.ClearMagnitude
+		local targetPos = targetPivotCache[target]
+		if not targetPos then
+			targetPos = target:GetPivot().Position
+			targetPivotCache[target] = targetPos
+		end
+		local clearMag = settings.RemoveMagnitude or PropManager.Defaults.RemoveMagnitude
 
 		-- Sigmoid attraction in progress
 		if isAttracted[i] then
@@ -171,7 +174,8 @@ function PropManager:_Update(_dT: number)
 			else
 				bulkN += 1
 				bulkParts[bulkN] = part
-				bulkCFrames[bulkN] = CFrame.new(newPos)
+				-- Preserve current rotation (part is anchored since attract start, so stable).
+				bulkCFrames[bulkN] = (part.CFrame - part.Position) + newPos
 			end
 
 			continue
@@ -204,25 +208,20 @@ function PropManager:_Update(_dT: number)
 		end
 	end
 
-	-- Phase 2: batch-move all attracted props in one engine call
-	if bulkN > 0 then
-		for j = bulkN + 1, #bulkParts do
-			bulkParts[j] = nil :: any
-			bulkCFrames[j] = nil :: any
-		end
+	-- Phase 2: always clear stale tail entries so we don't hold dead part refs between frames
+	for j = bulkN + 1, #bulkParts do
+		bulkParts[j] = nil :: any
+		bulkCFrames[j] = nil :: any
+	end
 
+	-- Batch-move all attracted props in one engine call
+	if bulkN > 0 then
 		workspace:BulkMoveTo(bulkParts, bulkCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
 	-- Phase 3: remove props in descending index order (safe swap-remove)
 	for j = removeN, 1, -1 do
 		local idx = removeQueue[j]
-
-		-- Guard: earlier swap-removes may have shifted count below this index
-		if idx > propCount then
-			continue
-		end
-
 		local prop = propInstances[idx]
 		local settings = allSettings[idx]
 		local groupId = groupIds[idx]
@@ -232,7 +231,7 @@ function PropManager:_Update(_dT: number)
 		PropUtil.Destroy(prop)
 
 		if settings.OnRemoved then
-			pcall(settings.OnRemoved, wasForced)
+			xpcall(settings.OnRemoved, reportCallbackError, wasForced)
 		end
 
 		decrementGroup(groupId)
@@ -244,14 +243,15 @@ function PropManager:_Update(_dT: number)
 		removeWasForced[j] = nil
 	end
 
+	table.clear(targetPivotCache)
+
 	debug.profileend()
 end
 
-RunService.Heartbeat:Connect(function(dT: number)
-	PropManager:_Update(dT)
-end)
+RunService.Heartbeat:Connect(update)
 
 -- Public API
+-- Note: uses `:` for call-site ergonomics (PropManager:Start) but does not read `self`.
 function PropManager:Start(
 	amount: number,
 	originCFrame: CFrame,
@@ -325,6 +325,16 @@ function PropManager:Start(
 		for propIndex = 1, amount do
 			local propInstance = propTemplate:Clone()
 
+			-- Apply engine-side setup first so OnSpawn can override anything (e.g. Anchored).
+			propInstance:PivotTo(originCFrame)
+			PropertyUtil.SetProperty(propInstance, {
+				CanTouch = false,
+				CanQuery = false,
+				CanCollide = true,
+				Anchored = false,
+				CollisionGroup = settings.CollisionGroup or PropManager.Defaults.CollisionGroup,
+			})
+
 			local spawnOk, spawnErr = pcall(settings.OnSpawn :: (...any) -> ...any, propInstance)
 
 			if not spawnOk then
@@ -333,24 +343,17 @@ function PropManager:Start(
 			end
 
 			if not propInstance or not propInstance:IsDescendantOf(game) then
-				error("'OnSpawn' errored with: \npropInstance prematurely destroyed")
+				error(
+					"propInstance is not parented to the DataModel after OnSpawn (did you forget to set `.Parent` in OnSpawn?)"
+				)
 			end
 
+			-- Re-check PrimaryPart in case OnSpawn cleared or replaced it.
 			local primaryPart = PropUtil.GetPrimaryPart(propInstance)
 			if not primaryPart then
 				propInstance:Destroy()
 				error("Model prop missing PrimaryPart after OnSpawn")
 			end
-
-			propInstance:PivotTo(originCFrame)
-
-			PropertyUtil.SetProperty(propInstance, {
-				CanTouch = false,
-				CanQuery = false,
-				CanCollide = true,
-				Anchored = false,
-				CollisionGroup = settings.CollisionGroup or PropManager.Defaults.CollisionGroup,
-			})
 
 			-- Append to SoA
 			propCount += 1
@@ -375,23 +378,18 @@ function PropManager:Start(
 	end)
 
 	if not success then
-		-- Roll back: collect indices belonging to this group, remove in descending order
-		local rollback = {}
-		for i = 1, propCount do
-			if groupIds[i] == groupId then
-				table.insert(rollback, i)
-			end
-		end
+		local hadSpawned = (groupCounts[groupId] or 0) > 0
 
-		for j = #rollback, 1, -1 do
-			local idx = rollback[j]
-			if idx <= propCount then
-				local prop = propInstances[idx]
-				swapRemoveAtIndex(idx)
+		-- Stream-rollback: walk descending and swap-remove group members in place.
+		-- Safe because swap-remove only pulls from `propCount`, which decreases monotonically.
+		for i = propCount, 1, -1 do
+			if groupIds[i] == groupId then
+				local prop = propInstances[i]
+				swapRemoveAtIndex(i)
 				PropUtil.Destroy(prop)
 
 				if settings.OnRemoved then
-					pcall(settings.OnRemoved, true)
+					xpcall(settings.OnRemoved, reportCallbackError, true)
 				end
 			end
 		end
@@ -399,8 +397,10 @@ function PropManager:Start(
 		groupCounts[groupId] = nil
 		local cb = groupOnAllRemoved[groupId]
 		groupOnAllRemoved[groupId] = nil
-		if cb then
-			task.defer(cb)
+
+		-- Only fire OnAllRemoved if at least one prop ever made it into the group.
+		if cb and hadSpawned then
+			xpcall(cb, reportCallbackError)
 		end
 
 		error(`\n{errMessage}`, 3)

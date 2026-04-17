@@ -1,6 +1,13 @@
 {
-  "name": "dispense-prop",
-  "tree": {
-    "$path": "src"
-  }
+	"name": "dispense-prop",
+	"tree": {
+	  	"$className": "DataModel",
+      "ReplicatedFirst": {
+        "$className": "ReplicatedFirst",
+
+        "DispenseProp": {
+          "$path": "src"
+        }
+      }
+	}
 }

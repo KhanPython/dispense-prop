@@ -1,0 +1,27 @@
+{
+	"name": "dispense-prop-example",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedFirst": {
+			"$className": "ReplicatedFirst",
+			"DispenseProp": {
+				"$path": "src"
+			}
+		},
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"PropDropExample": {
+				"$path": "example/Server"
+			}
+		},
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"StarterPlayerScripts": {
+				"$className": "StarterPlayerScripts",
+				"PropDropExample": {
+					"$path": "example/Client"
+				}
+			}
+		}
+	}
+}
